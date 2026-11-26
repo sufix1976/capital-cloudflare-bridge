@@ -1,0 +1,6 @@
+{
+  "name": "capital-trading-brid",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-26",
+  "keep_vars": true
+}
