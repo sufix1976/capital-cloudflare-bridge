@@ -1,9 +1,9 @@
 import {trailingCandidate} from "./trailing.js";
 import {resolveInstrument} from "./instruments.js";
-export async function previewTrail(client,data){
+export async function previewTrail(client,data,positionsSnapshot){
  const epic=resolveInstrument(data.symbol);
  if(!epic||typeof data.dealId!=="string"||!data.dealId||!["BUY","SELL"].includes(data.direction))throw new Error("Invalid position identity");
- const positions=await client.positions();
+ const positions=positionsSnapshot??await client.positions();
  const matches=positions.positions?.filter(x=>x.position?.dealId===data.dealId&&x.market?.epic===epic&&x.position?.direction===data.direction);
  if(matches?.length!==1)throw new Error("Position not uniquely matched");
  const p=matches[0].position;
