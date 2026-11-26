@@ -10,17 +10,23 @@ export default {async fetch(request,env){
  if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.4"});
  if(path==="/webhook"&&request.method==="POST"){
  if(env.TRADING_MODE!=="DEMO"||env.TV_WEBHOOK_ENABLED!=="true"||env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Webhook disabled"},403);
+ let phase="body",identity={};
  try{
  const reader=request.body?.getReader();if(!reader)return reply({error:"Invalid body"},400);
  let size=0;const decoder=new TextDecoder();let raw="";
  for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>8192){await reader.cancel();return reply({error:"Payload too large"},413);}raw+=decoder.decode(value,{stream:true});}
  raw+=decoder.decode();
- const d=JSON.parse(raw);
+ phase="json";const d=JSON.parse(raw);
+ phase="authentication";
  if(!(await authenticateTV(d?.token,env.TV_WEBHOOK_TOKEN)))return reply({error:"Unauthorized"},401);
- const data=normalizeTV(d);
+ phase="validation";const data=normalizeTV(d);
+ identity={symbol:data.symbol,action:data.action,signal_id:data.signal_id};
+ console.info("tv.validated",identity);
+ phase="inbox";
  if(!env.TRAIL_MONITOR)return reply({error:"Monitor binding missing"},503);
- return env.TRAIL_MONITOR.get(env.TRAIL_MONITOR.idFromName("demo-single")).fetch(new Request("https://internal/tv-inbox",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)}));
- }catch{return reply({error:"Invalid webhook or inbox unavailable"},400);}
+ const response=await env.TRAIL_MONITOR.get(env.TRAIL_MONITOR.idFromName("demo-single")).fetch(new Request("https://internal/tv-inbox",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)}));
+ console.info("tv.inbox.response",{...identity,status:response.status});return response;
+ }catch(e){const reason=String(e?.message??"");console.warn("tv.failed",{...identity,phase,reason:/^(Invalid payload|Invalid identity|Invalid sizing|Invalid trailing|Signal too long|Invalid signal ID|Invalid signal timestamp|Signal expired|Signal from future)$/.test(reason)?reason:"Invalid request or internal failure"});return reply({error:"Invalid webhook or inbox unavailable"},400);}
  }
  if(request.method!=="POST"||!["/close-resolve","/order-resolve","/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
  if(!env.BRIDGE_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.BRIDGE_ACCESS_TOKEN)return reply({error:"Unauthorized"},401);
