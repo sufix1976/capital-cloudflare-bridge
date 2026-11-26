@@ -19,6 +19,15 @@ export async function executeDemoOrder(storage,client,env,data){
  const account=await client.account();
  accountId=account.accountId;
  if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
+ let closeCursor;
+ for(;;){
+ const locks=await storage.list({prefix:"close:",limit:128,...(closeCursor?{startAfter:closeCursor}:{})});
+ for(const [id,lock] of locks){
+ closeCursor=id;
+ if(!lock.accountId||lock.accountId===accountId)throw Error("Unresolved close; manual reconciliation required");
+ }
+ if(locks.size<128)break;
+ }
  if(strategyId){
  const snapshot=await client.positions();
  if((await client.account()).accountId!==accountId)throw Error("Account changed");
