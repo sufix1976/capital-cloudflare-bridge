@@ -36,6 +36,8 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
   async submitOrder(payload){
    if(env.TRADING_MODE!=="DEMO"||env.ORDER_WRITE_ENABLED!=="true")throw Error("Order write disabled");
    if(!payload||typeof payload.epic!=="string"||!["BUY","SELL"].includes(payload.direction)||!Number.isFinite(payload.size)||payload.size<=0||!Number.isFinite(payload.stopDistance)||payload.stopDistance<=0||payload.trailingStop!==false)throw Error("Invalid protected order");
+   const prefs=await get("/accounts/preferences");
+   if(prefs.hedgingMode!==true)throw Error("Hedging mode required");
    const response=await fetcher(BASE+"/positions",{method:"POST",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({epic:payload.epic,direction:payload.direction,size:payload.size,stopDistance:payload.stopDistance,trailingStop:false}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw Error("Order outcome requires reconciliation");
    const result=await response.json();
