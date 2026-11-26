@@ -24,7 +24,7 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
    if(!account||account.status!=="ENABLED"||account.accountType!=="CFD") throw new Error("Active CFD account not verified");
    const equity=account.balance?.balance, available=account.balance?.available;
    if(!Number.isFinite(equity)||!Number.isFinite(available)||!account.currency) throw new Error("Invalid account data");
-   return {equity,available,currency:account.currency};
+   return {equity,available,currency:account.currency,accountId:account.accountId};
   },
   preferences:()=>get("/accounts/preferences"),
   async market(epic){
