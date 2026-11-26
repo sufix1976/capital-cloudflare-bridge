@@ -1,6 +1,6 @@
 // Demo broker client for Capital.com DEMO.
 const BASE="https://demo-api-capital.backend-capital.com/api/v1";
-export async function connectDemo(env, fetcher=fetch) {
+export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async()=>false) {
  if(env.TRADING_MODE!=="DEMO") throw new Error("DEMO required");
  if(!env.CAPITAL_API_KEY||!env.CAPITAL_IDENTIFIER||!env.CAPITAL_PASSWORD) throw new Error("Missing configuration");
  const login=await fetcher(BASE+"/session",{method:"POST",headers:{"Content-Type":"application/json","X-CAP-API-KEY":env.CAPITAL_API_KEY},body:JSON.stringify({identifier:env.CAPITAL_IDENTIFIER,password:env.CAPITAL_PASSWORD,encryptedPassword:false}),signal:AbortSignal.timeout(10000)});
@@ -51,7 +51,7 @@ export async function connectDemo(env, fetcher=fetch) {
    return get("/positions/"+encodeURIComponent(dealId));
   },
   async updateStop(dealId,stopLevel){
-   if(env.TRAIL_WRITE_ENABLED!=="true"||!allowedTrailDeal(env,dealId)||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
+   if(env.TRAIL_WRITE_ENABLED!=="true"||(!allowedTrailDeal(env,dealId)&&!(await authorizeManagedDeal(dealId)))||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
    const path="/positions/"+encodeURIComponent(dealId);
    const response=await fetcher(BASE+path,{method:"PUT",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({stopLevel}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw new Error("Stop write HTTP "+response.status);
