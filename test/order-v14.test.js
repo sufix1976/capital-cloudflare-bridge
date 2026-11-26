@@ -17,7 +17,7 @@ function broker(outcome){
  const market={instrument:{epic:"GOLD",lotSize:1,type:"COMMODITIES",currency:"USD",marginFactorUnit:"PERCENTAGE",marginFactor:5},dealingRules:{minDealSize:rule(0.01),maxDealSize:rule(100),minSizeIncrement:rule(0.01),minStopOrProfitDistance:rule(1),maxStopOrProfitDistance:rule(100)},snapshot:{marketStatus:"TRADEABLE",bid:100,offer:101,scalingFactor:1,decimalPlacesFactor:2}};
  let payload;
  const position=()=>({position:{dealId:"deal-1",direction:"BUY",size:payload.size,level:101,stopLevel:94},market:{epic:"GOLD"}});
- return {calls:()=>calls,account:async()=>({equity:10000,available:10000,currency:"USD"}),market:async()=>market,preferences:async()=>({leverages:{COMMODITIES:{current:20}}}),submitOrder:async p=>{calls++;payload=p;if(outcome==="timeout")throw Error("timeout");return "ref-1";},confirmOrder:async()=>({dealStatus:outcome==="reject"?"REJECTED":"ACCEPTED",dealId:"deal-1"}),readPosition:async()=>position(),positions:async()=>({positions:[position()]})};
+ return {calls:()=>calls,account:async()=>({equity:10000,available:10000,currency:"USD",accountId:"demo-test"}),market:async()=>market,preferences:async()=>({leverages:{COMMODITIES:{current:20}}}),submitOrder:async p=>{calls++;payload=p;if(outcome==="timeout")throw Error("timeout");return "ref-1";},confirmOrder:async()=>({dealStatus:outcome==="reject"?"REJECTED":"ACCEPTED",dealId:"deal-1"}),readPosition:async()=>position(),positions:async()=>({positions:[position()]})};
 }
 for(const outcome of ["timeout","reject","accept"]){
  test("order "+outcome+" is never submitted twice",async()=>{
