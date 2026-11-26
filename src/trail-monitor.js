@@ -22,6 +22,7 @@ export class TrailMonitor {
  const pending=await tx.list({prefix:"tv-pending:",limit:21});
  if(pending.size>=20)throw Error("Inbox full");
  await tx.put(key,{status:"queued",createdAt:Date.now()});
+ await tx.put("maintenance-enabled",true);
  await tx.put("tv-pending:"+String(Date.now()).padStart(13,"0")+":"+data.signal_id,data);
  return false;
  });
@@ -32,6 +33,8 @@ export class TrailMonitor {
  const storage=this.ctx.storage,pending=await storage.list({prefix:"tv-pending:",limit:1});
  for(const [key,data] of pending){
  const id="tv:"+data.signal_id;
+ const existing=await storage.get(id);
+ if(existing?.status!=="queued"){await storage.delete(key);continue;}
  await storage.transaction(async tx=>{await tx.put(id,{status:"processing",createdAt:Date.now()});await tx.delete(key);});
  let status="blocked";
  try{
@@ -39,7 +42,7 @@ export class TrailMonitor {
  normalizeTV(data);
  await storage.put("maintenance-enabled",true);
  const result=await dispatchStrategy(storage,await this.broker(),this.env,data);
- status=result.error?"uncertain":result.record?.status==="rejected"?"rejected":"completed";
+ status=result.error||result.duplicate?"uncertain":result.record?.status==="rejected"?"rejected":"completed";
  }
  }catch{status="uncertain";}
  await storage.put(id,{status,finishedAt:Date.now()});
