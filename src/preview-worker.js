@@ -5,12 +5,20 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"preview-only",version:"preview-v4"});
- if(request.method!=="POST"||!["/trade-preview","/market-check","/trail-preview"].includes(path))return reply({error:"Not found"},404);
+ if(path==="/"&&request.method==="GET")return reply({mode:"preview-only",version:"preview-v5"});
+ if(request.method!=="POST"||!["/trade-preview","/market-check","/trail-preview","/positions"].includes(path))return reply({error:"Not found"},404);
  if(!env.BRIDGE_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.BRIDGE_ACCESS_TOKEN)return reply({error:"Unauthorized"},401);
  if(env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  let stage="request";
  try{
+ if(path==="/positions"){
+ stage="login";
+ const client=await connectDemo(env);
+ stage="positions";
+ const result=await client.positions();
+ if(!Array.isArray(result.positions))throw new Error("Invalid positions response");
+ return reply({previewOnly:true,positions:result.positions.map(({position:p,market:m})=>({dealId:p.dealId,epic:m.epic,direction:p.direction,size:p.size,entryPrice:p.level,stopLevel:p.stopLevel??null}))});
+ }
  const data=await request.json(),epic=resolveInstrument(data.symbol);
  if(!epic)return reply({error:"Unknown instrument"},400);
  stage="login";
