@@ -1,5 +1,6 @@
 import {previewOrder} from "./preview.js";
 import {reserveOrder,transitionOrder,maintainJournal} from "./order-journal.js";
+import {adoptConfirmedOrder} from "./order-adoption.js";
 import {resolveInstrument} from "./instruments.js";
 // Must run inside the monitor's serialized queue.
 export async function executeDemoOrder(storage,client,env,data){
@@ -15,7 +16,11 @@ export async function executeDemoOrder(storage,client,env,data){
  preview=await previewOrder(client,data,env.BROKER_TIMEZONE);
  if(preview.payload.trailingStop!==false||!Number.isFinite(preview.payload.stopDistance))throw Error("Protective stop required");
  // Managed trailing must not be silently ignored before adoption is wired.
- if(preview.managedTrailing)throw Error("Managed trailing adoption not yet enabled");
+ if(preview.managedTrailing){
+ if(env.TRAIL_WRITE_ENABLED!=="true")throw Error("Trailing disabled");
+ const state=await storage.get("state");
+ if((state?.positions??[]).filter(x=>x.active).length>=3)throw Error("Monitor capacity reached");
+ }
  }catch(e){
  await transitionOrder(storage,key,"cancelled-before-submit");
  throw e;
@@ -37,7 +42,12 @@ export async function executeDemoOrder(storage,client,env,data){
  if(p?.dealId!==dealId||m?.epic!==epic||p.direction!==preview.payload.direction||Math.abs(p.size-preview.payload.size)>1e-8||!Number.isFinite(p.size)||!Number.isFinite(p.level)||!Number.isFinite(p.stopLevel)||p.stopLevel<=0)throw Error("Position verification failed");
  const distance=p.direction==="BUY"?p.level-p.stopLevel:p.stopLevel-p.level;
  if(distance<=0||distance>preview.payload.stopDistance+1e-8)throw Error("Protective stop verification failed");
- return {record:await transitionOrder(storage,key,"confirmed",{dealId}),stopLevel:p.stopLevel,size:p.size};
+ const record=await transitionOrder(storage,key,"confirmed",{dealId});
+ if(preview.managedTrailing){
+ try{await adoptConfirmedOrder(storage,client,key,{...preview.managedTrailing,direction:p.direction});}
+ catch{return {record,stopLevel:p.stopLevel,size:p.size,error:"Position confirmed but trailing adoption failed; check broker"};}
+ }
+ return {record,stopLevel:p.stopLevel,size:p.size,managedTrailing:!!preview.managedTrailing};
  }catch{
  const current=await storage.get(key);
  if(current?.status==="submitting")await transitionOrder(storage,key,"uncertain",reference?{dealReference:reference}:{});
