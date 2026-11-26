@@ -28,6 +28,7 @@ export async function dispatchStrategy(storage,client,env,data){
  const direction=["exit_long","flip_short"].includes(data.action)?"BUY":"SELL";
  const closed=await exitStrategy(storage,client,env,{...data,direction,signal_id:data.signal_id+":exit"});
  if(closed.error||closed.duplicate||(!closed.closed&&closed.reason!=="No owned position"))throw Error("Exit not verified");
+ console.info("strategy.exit",{symbol:data.symbol,signal_id:data.signal_id,closed:closed.closed===true,noOwnedPosition:closed.reason==="No owned position"});
  if(exit)result=closed;
  }
  if(!exit){
@@ -37,7 +38,8 @@ export async function dispatchStrategy(storage,client,env,data){
  const status=result.error?"uncertain":"completed";
  await storage.put(key,{status,finishedAt:Date.now()});
  return result;
- }catch{
+ }catch(e){
+ const m=String(e?.message??"");console.warn("strategy.blocked",{symbol:data.symbol,signal_id:data.signal_id,reason:/^(Exit not verified|Unresolved order|Unresolved close; manual reconciliation required|Ambiguous ownership|Direction or deal mismatch|Broker identity mismatch|Account changed|Invalid positions snapshot)$/.test(m)?m:"Strategy execution blocked; see order diagnostics"});
  await storage.put(key,{status:"uncertain",finishedAt:Date.now()});
  return {error:"Strategy event blocked or uncertain; inspect broker before retry"};
  }
