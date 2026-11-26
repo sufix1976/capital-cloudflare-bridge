@@ -16,6 +16,15 @@ export async function executeDemoOrder(storage,client,env,data){
  const account=await client.account();
  accountId=account.accountId;
  if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
+ let cursor;
+ for(;;){
+ const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
+ for(const [id,record] of page){
+ cursor=id;
+ if(id!==key&&["submitting","uncertain"].includes(record.status)&&(!record.accountId||record.accountId===accountId))throw Error("Unresolved order; manual reconciliation required");
+ }
+ if(page.size<128)break;
+ }
  preview=await previewOrder(client,data,env.BROKER_TIMEZONE);
  if((await client.account()).accountId!==accountId)throw Error("Account changed");
  if(preview.payload.trailingStop!==false||!Number.isFinite(preview.payload.stopDistance))throw Error("Protective stop required");
