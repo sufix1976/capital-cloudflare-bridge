@@ -1,7 +1,8 @@
 import {executeDemoOrder} from "./order-coordinator.js";
 import {connectDemo,allowedTrailDeal} from "./capital.js";
 import {isManagedDeal} from "./order-adoption.js";
-import {transitionOrder,maintainJournal} from "./order-journal.js";
+import {reconcileClosedOrders} from "./order-reconcile.js";
+import {maintainJournal} from "./order-journal.js";
 import {previewTrail} from "./trail-preview.js";
 export function meetsStep(next,step){return next.update&&Number.isFinite(step)&&step>0&&Math.abs(next.stopLevel-next.previousStop)+1e-9>=step;}
 export class TrailMonitor {
@@ -9,6 +10,8 @@ export class TrailMonitor {
  async broker(){if(!this.client||Date.now()-this.clientSince>=480000){this.client=await connectDemo(this.env,async (...args)=>{const wait=Math.max(0,250-(Date.now()-this.lastRequest));if(wait)await new Promise(r=>setTimeout(r,wait));this.lastRequest=Date.now();this.apiCalls++;const response=await fetch(...args);if(response.ok)this.clientSince=Date.now();return response;},async dealId=>{const state=await this.ctx.storage.get("state");const item=state?.positions?.find(x=>x.active&&x.data.dealId===dealId);return isManagedDeal(this.ctx.storage,item);});this.clientSince=Date.now();this.logins++;}return this.client;}
  serial(fn){const next=this.queue.then(fn,fn);this.queue=next.catch(()=>{});return next;}
  enabled(){return this.env.TRADING_MODE==="DEMO"&&this.env.TRAIL_WRITE_ENABLED==="true";}
+ async scheduleMaintenance(){const alarm=await this.ctx.storage.getAlarm();if(alarm==null)await this.ctx.storage.setAlarm(Date.now()+86400000);}
+ async maintenance(){const day=new Date().toISOString().slice(0,10);if(await this.ctx.storage.get("reconcile-day")===day)return;const client=await this.broker();const before=await client.account();const snapshot=await client.positions();const after=await client.account();if(!before.accountId||before.accountId!==after.accountId)throw Error("Account changed");await reconcileClosedOrders(this.ctx.storage,snapshot,before.accountId);await maintainJournal(this.ctx.storage);await this.ctx.storage.put("reconcile-day",day);}
  fetch(request){return this.serial(async()=>{
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
  if(path==="/trade"){
@@ -16,12 +19,13 @@ export class TrailMonitor {
  try{
  const data=await request.json();
  if(data.confirm!==true)return reply({error:"Explicit confirmation required"},403);
+ await this.ctx.storage.put("maintenance-enabled",true);await this.scheduleMaintenance();
  const result=await executeDemoOrder(this.ctx.storage,await this.broker(),this.env,data);
  return reply(result,result.error?409:200);
  }catch{return reply({error:"Order blocked or outcome uncertain; check broker before retrying"},409);}
  }
  if(path==="/trail-status")return reply(await this.ctx.storage.get("state")??{active:false});
- if(path==="/trail-stop"){await this.ctx.storage.put("state",{active:false,reason:"manual stop"});await this.ctx.storage.deleteAlarm();return reply({active:false});}
+ if(path==="/trail-stop"){await this.ctx.storage.put("state",{active:false,reason:"manual stop"});await this.ctx.storage.deleteAlarm();if(await this.ctx.storage.get("maintenance-enabled"))await this.scheduleMaintenance();return reply({active:false});}
  if(["/trail-add","/trail-remove","/trail-config"].includes(path)){
  try{
  const d=await request.json(),state=await this.ctx.storage.get("state");
@@ -43,7 +47,7 @@ export class TrailMonitor {
  }
  state.active=state.positions.some(x=>x.active);
  await this.ctx.storage.put("state",state);
- if(!state.active)await this.ctx.storage.deleteAlarm();
+ if(!state.active)await this.ctx.storage.deleteAlarm();if(await this.ctx.storage.get("maintenance-enabled"))await this.scheduleMaintenance();
  return reply(state);
  }catch{return reply({error:"Position management validation failed"},409);}
  }
@@ -62,7 +66,9 @@ export class TrailMonitor {
  }catch(e){const message=String(e?.message??"");const detail=/^(Login HTTP \d{3}|Broker read HTTP \d{3}|Invalid position identity|Position not uniquely matched|Market metadata not verified|Invalid trailing inputs|Invalid stop distance|EPIC mismatch|Missing tokens|Missing configuration)$/.test(message)?message:"Unexpected validation or storage error";return reply({error:"Start validation failed",stage,symbol,detail},409);}
  });}
  alarm(){return this.serial(async()=>{
- const state=await this.ctx.storage.get("state");if(!state?.active)return;
+ const maintenance=await this.ctx.storage.get("maintenance-enabled");
+ if(maintenance&&this.env.TRADING_MODE==="DEMO"){try{await this.maintenance();}catch{this.client=null;this.clientSince=0;}}
+ const state=await this.ctx.storage.get("state");if(!state?.active){if(maintenance)await this.ctx.storage.setAlarm(Date.now()+86400000);return;}
  try{
  if(!Array.isArray(state.positions)||(state.expires!=null&&Date.now()>=state.expires)||!this.enabled()){state.active=false;state.reason="expired, legacy state or disabled";}
  else{
@@ -74,7 +80,7 @@ export class TrailMonitor {
  for(const item of state.positions){
  if(!item.active)continue;
  if((state.expires!=null&&Date.now()>=state.expires)||(!allowedTrailDeal(this.env,item.data.dealId)&&!(await isManagedDeal(this.ctx.storage,item)))){item.active=false;item.reason="expired or disabled";continue;}
- if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){if(await isManagedDeal(this.ctx.storage,item))await transitionOrder(this.ctx.storage,item.orderKey,"closed");item.active=false;item.reason="position absent";continue;}
+ if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){item.active=false;item.reason="position absent";continue;}
  let writing=false;
  try{
  const next=await previewTrail(client,item.data,snapshot);
@@ -89,6 +95,6 @@ export class TrailMonitor {
  state.lastCheck=Date.now();state.sessionLoginsSinceInstanceStart=this.logins;state.apiCallsSinceInstanceStart=this.apiCalls;
  }
  }catch{this.client=null;this.clientSince=0;state.active=false;state.reason=state.dailyCycles>=20000?"Daily cycle budget reached":"Broker or validation error; check broker before restarting";}
- await this.ctx.storage.put("state",state);if(state.active)await this.ctx.storage.setAlarm(Date.now()+5000);
+ await this.ctx.storage.put("state",state);if(state.active)await this.ctx.storage.setAlarm(Date.now()+5000);else if(maintenance)await this.ctx.storage.setAlarm(Date.now()+86400000);
  });}
 }
