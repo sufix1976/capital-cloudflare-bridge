@@ -11,17 +11,18 @@ export class TrailMonitor {
  if(path==="/trail-status")return reply(await this.ctx.storage.get("state")??{active:false});
  if(path==="/trail-stop"){await this.ctx.storage.put("state",{active:false,reason:"manual stop"});await this.ctx.storage.deleteAlarm();return reply({active:false});}
  if(path!=="/trail-start")return reply({error:"Not found"},404);
+ let stage="request",symbol=null;
  try{
  const d=await request.json(),items=d.positions??[d];
  if(!this.enabled()||d.confirm!==true)return reply({error:"Not enabled"},403);
  if(!Array.isArray(items)||items.length<1||items.length>3||new Set(items.map(x=>x.dealId)).size!==items.length||items.some(x=>!allowedTrailDeal(this.env,x.dealId)||!Number.isFinite(x.step??0.5)||(x.step??0.5)<=0))return reply({error:"Invalid or unauthorized positions"},400);
  const old=await this.ctx.storage.get("state");
  if(old?.active&&Date.now()<old.expires)return reply({error:"Already active"},409);
- const client=await this.broker(),snapshot=await client.positions(),positions=[];
- for(const x of items){const data={symbol:x.symbol,dealId:x.dealId,direction:x.direction,distance:x.distance,step:x.step??0.5};await previewTrail(client,data,snapshot);positions.push({data,active:true,checks:0,updates:0});}
- const state={active:true,positions,expires:Date.now()+300000,checks:0};
+ stage="login";const client=await this.broker();stage="positions";const snapshot=await client.positions(),positions=[];
+ for(const x of items){stage="position-validation";symbol=typeof x.symbol==="string"&&/^[A-Z0-9_]{1,20}$/.test(x.symbol)?x.symbol:null;const data={symbol:x.symbol,dealId:x.dealId,direction:x.direction,distance:x.distance,step:x.step??0.5};await previewTrail(client,data,snapshot);positions.push({data,active:true,checks:0,updates:0});}
+ stage="storage";const state={active:true,positions,expires:Date.now()+300000,checks:0};
  await this.ctx.storage.put("state",state);await this.ctx.storage.setAlarm(Date.now()+5000);return reply(state);
- }catch{return reply({error:"Start validation failed"},409);}
+ }catch(e){const message=String(e?.message??"");const detail=/^(Login HTTP \d{3}|Broker read HTTP \d{3}|Invalid position identity|Position not uniquely matched|Market metadata not verified|Invalid trailing inputs|Invalid stop distance|EPIC mismatch|Missing tokens|Missing configuration)$/.test(message)?message:"Unexpected validation or storage error";return reply({error:"Start validation failed",stage,symbol,detail},409);}
  });}
  alarm(){return this.serial(async()=>{
  const state=await this.ctx.storage.get("state");if(!state?.active)return;
