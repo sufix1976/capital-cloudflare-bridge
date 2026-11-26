@@ -1,9 +1,11 @@
 import {connectDemo,allowedTrailDeal} from "./capital.js";
+import {isManagedDeal} from "./order-adoption.js";
+import {transitionOrder,maintainJournal} from "./order-journal.js";
 import {previewTrail} from "./trail-preview.js";
 export function meetsStep(next,step){return next.update&&Number.isFinite(step)&&step>0&&Math.abs(next.stopLevel-next.previousStop)+1e-9>=step;}
 export class TrailMonitor {
  constructor(ctx,env){this.ctx=ctx;this.env=env;this.queue=Promise.resolve();this.client=null;this.clientSince=0;this.logins=0;this.lastRequest=0;this.apiCalls=0;}
- async broker(){if(!this.client||Date.now()-this.clientSince>=480000){this.client=await connectDemo(this.env,async (...args)=>{const wait=Math.max(0,250-(Date.now()-this.lastRequest));if(wait)await new Promise(r=>setTimeout(r,wait));this.lastRequest=Date.now();this.apiCalls++;const response=await fetch(...args);if(response.ok)this.clientSince=Date.now();return response;});this.clientSince=Date.now();this.logins++;}return this.client;}
+ async broker(){if(!this.client||Date.now()-this.clientSince>=480000){this.client=await connectDemo(this.env,async (...args)=>{const wait=Math.max(0,250-(Date.now()-this.lastRequest));if(wait)await new Promise(r=>setTimeout(r,wait));this.lastRequest=Date.now();this.apiCalls++;const response=await fetch(...args);if(response.ok)this.clientSince=Date.now();return response;},async dealId=>{const state=await this.ctx.storage.get("state");const item=state?.positions?.find(x=>x.active&&x.data.dealId===dealId);return isManagedDeal(this.ctx.storage,item);});this.clientSince=Date.now();this.logins++;}return this.client;}
  serial(fn){const next=this.queue.then(fn,fn);this.queue=next.catch(()=>{});return next;}
  enabled(){return this.env.TRADING_MODE==="DEMO"&&this.env.TRAIL_WRITE_ENABLED==="true";}
  fetch(request){return this.serial(async()=>{
@@ -56,12 +58,13 @@ export class TrailMonitor {
  else{
  const client=await this.broker(),snapshot=await client.positions();
  if(!Array.isArray(snapshot.positions))throw Error("Invalid positions");
+ await maintainJournal(this.ctx.storage);
  state.checks++;
  const day=new Date().toISOString().slice(0,10);const usage=await this.ctx.storage.get("usage")??{};const count=usage.day===day?(usage.cycles??0)+1:1;await this.ctx.storage.put("usage",{day,cycles:count});state.dailyCycles=count;state.usageWarning=count>=18000?"Monitor cycle budget reached":null;if(count>=20000)throw Error("Daily cycle budget reached");
  for(const item of state.positions){
  if(!item.active)continue;
- if((state.expires!=null&&Date.now()>=state.expires)||!allowedTrailDeal(this.env,item.data.dealId)){item.active=false;item.reason="expired or disabled";continue;}
- if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){item.active=false;item.reason="position absent";continue;}
+ if((state.expires!=null&&Date.now()>=state.expires)||(!allowedTrailDeal(this.env,item.data.dealId)&&!(await isManagedDeal(this.ctx.storage,item)))){item.active=false;item.reason="expired or disabled";continue;}
+ if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){if(await isManagedDeal(this.ctx.storage,item))await transitionOrder(this.ctx.storage,item.orderKey,"closed");item.active=false;item.reason="position absent";continue;}
  let writing=false;
  try{
  const next=await previewTrail(client,item.data,snapshot);
