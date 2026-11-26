@@ -10,6 +10,32 @@ export class TrailMonitor {
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
  if(path==="/trail-status")return reply(await this.ctx.storage.get("state")??{active:false});
  if(path==="/trail-stop"){await this.ctx.storage.put("state",{active:false,reason:"manual stop"});await this.ctx.storage.deleteAlarm();return reply({active:false});}
+ if(["/trail-add","/trail-remove","/trail-config"].includes(path)){
+ try{
+ const d=await request.json(),state=await this.ctx.storage.get("state");
+ if(!this.enabled()||d.confirm!==true)return reply({error:"Not enabled"},403);
+ if(!state?.active||!Array.isArray(state.positions)||Date.now()>=state.expires)return reply({error:"No active test"},409);
+ const item=state.positions.find(x=>x.active&&x.data.dealId===d.dealId);
+ if(path==="/trail-remove"){
+ if(!item)return reply({error:"Position not monitored"},404);
+ item.active=false;item.reason="manual removal";
+ }else{
+ if(!allowedTrailDeal(this.env,d.dealId))return reply({error:"Unauthorized deal"},403);
+ if(path==="/trail-add"&&(item||state.positions.length>=3))return reply({error:"Duplicate or test limit reached"},409);
+ if(path==="/trail-config"&&!item)return reply({error:"Position not monitored"},404);
+ const data=path==="/trail-config"?{...item.data,distance:d.distance??item.data.distance,step:d.step??item.data.step}:{symbol:d.symbol,dealId:d.dealId,direction:d.direction,distance:d.distance,step:d.step??0.5};
+ if(!Number.isFinite(data.step)||data.step<=0)return reply({error:"Invalid step"},400);
+ await previewTrail(await this.broker(),data);
+ if(Date.now()>=state.expires)return reply({error:"Test expired"},409);
+ if(item)item.data=data;else state.positions.push({data,active:true,checks:0,updates:0});
+ }catch(e){if(writing||/^Broker read HTTP|^Login HTTP/.test(String(e?.message??"")))throw e;item.active=false;item.reason="Position validation failed; check broker";}
+ }
+ state.active=state.positions.some(x=>x.active);
+ await this.ctx.storage.put("state",state);
+ if(!state.active)await this.ctx.storage.deleteAlarm();
+ return reply(state);
+ }catch{return reply({error:"Position management validation failed"},409);}
+ }
  if(path!=="/trail-start")return reply({error:"Not found"},404);
  let stage="request",symbol=null;
  try{
@@ -36,11 +62,13 @@ export class TrailMonitor {
  if(!item.active)continue;
  if(Date.now()>=state.expires||!allowedTrailDeal(this.env,item.data.dealId)){item.active=false;item.reason="expired or disabled";continue;}
  if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){item.active=false;item.reason="position absent";continue;}
+ let writing=false;
+ try{
  const next=await previewTrail(client,item.data,snapshot);
  item.checks++;item.lastStop=next.previousStop;item.lastCandidate=next.stopLevel;item.lastImprovement=Number(Math.abs(next.stopLevel-next.previousStop).toFixed(8));
  if(meetsStep(next,item.data.step)){
  const fresh=await previewTrail(client,item.data);
- if(Date.now()<state.expires&&meetsStep(fresh,item.data.step)){item.lastStop=await client.updateStop(fresh.dealId,fresh.stopLevel);item.lastVerified=Date.now();item.updates++;}
+ if(Date.now()<state.expires&&meetsStep(fresh,item.data.step)){writing=true;item.lastStop=await client.updateStop(fresh.dealId,fresh.stopLevel);item.lastVerified=Date.now();item.updates++;}
  }
  }
  state.active=state.positions.some(x=>x.active)&&Date.now()<state.expires;
