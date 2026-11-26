@@ -5,6 +5,8 @@ import {resolveInstrument} from "./instruments.js";
 // Must run inside the monitor's serialized queue.
 export async function executeDemoOrder(storage,client,env,data){
  if(env.TRADING_MODE!=="DEMO"||env.ORDER_WRITE_ENABLED!=="true"||data.confirm!==true)throw Error("Order disabled");
+ const strategyId=data.strategy_id;
+ if(strategyId!==undefined&&(typeof strategyId!=="string"||!/^[A-Za-z0-9_.:-]{1,64}$/.test(strategyId)))throw Error("Invalid strategy ID");
  const epic=resolveInstrument(data.symbol);
  if(!epic)throw Error("Invalid instrument");
  await maintainJournal(storage);
@@ -21,6 +23,7 @@ export async function executeDemoOrder(storage,client,env,data){
  const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
  for(const [id,record] of page){
  cursor=id;
+ if(id!==key&&strategyId&&record.strategyId===strategyId&&record.accountId===accountId&&record.epic===epic&&record.status==="confirmed")throw Error("Strategy position already registered; reconcile before entry");
  if(id!==key&&["submitting","uncertain"].includes(record.status)&&(!record.accountId||record.accountId===accountId))throw Error("Unresolved order; manual reconciliation required");
  }
  if(page.size<128)break;
@@ -38,7 +41,7 @@ export async function executeDemoOrder(storage,client,env,data){
  await transitionOrder(storage,key,"cancelled-before-submit");
  throw e;
  }
- await transitionOrder(storage,key,"submitting",{accountId});
+ await transitionOrder(storage,key,"submitting",{accountId,strategyId,direction:preview.payload.direction});
  let reference;
  try{
  reference=await client.submitOrder(preview.payload);
