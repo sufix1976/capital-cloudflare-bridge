@@ -21,7 +21,7 @@ export class TrailMonitor {
  const data=await request.json();
  if(data.confirm!==true)return reply({error:"Explicit confirmation required"},403);
  return reply(await resolveUncertainOrder(this.ctx.storage,await this.broker(),data));
- }catch(e){const message=String(e?.message??"");const safe=/^(Invalid request|No recoverable reference|Account mismatch|Account changed|Still uncertain|Position not verified|Invalid order transition|Broker read HTTP \d{3}|Login HTTP \d{3})$/.test(message)?message:"Unexpected resolution error";return reply({error:"Resolution blocked; order remains uncertain",detail:safe},409);}
+ }catch(e){const message=String(e?.message??"");const safe=/^(Invalid request|No recoverable reference|Account mismatch|Account changed|Still uncertain|Position not verified|Invalid order transition|Confirmation lookup: Broker read HTTP \d{3}|Position lookup: Broker read HTTP \d{3}|Broker read HTTP \d{3}|Login HTTP \d{3})$/.test(message)?message:"Unexpected resolution error";return reply({error:"Resolution blocked; order remains uncertain",detail:safe},409);}
  }
  if(path==="/trade"){
  if(this.env.TRADING_MODE!=="DEMO"||this.env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Order disabled"},403);
