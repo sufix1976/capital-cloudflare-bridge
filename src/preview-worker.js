@@ -1,4 +1,5 @@
 export {TrailMonitor} from "./trail-monitor.js";
+import {authenticateTV,normalizeTV} from "./tv-webhook.js";
 import {previewTrail} from "./trail-preview.js";
 import {connectDemo} from "./capital.js";
 import {previewOrder} from "./preview.js";
@@ -6,7 +7,21 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.0"});
+ if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.1"});
+ if(path==="/webhook"&&request.method==="POST"){
+ if(env.TRADING_MODE!=="DEMO"||env.TV_WEBHOOK_ENABLED!=="true"||env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Webhook disabled"},403);
+ try{
+ const reader=request.body?.getReader();if(!reader)return reply({error:"Invalid body"},400);
+ let size=0;const decoder=new TextDecoder();let raw="";
+ for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>8192){await reader.cancel();return reply({error:"Payload too large"},413);}raw+=decoder.decode(value,{stream:true});}
+ raw+=decoder.decode();
+ const d=JSON.parse(raw);
+ if(!(await authenticateTV(d?.token,env.TV_WEBHOOK_TOKEN)))return reply({error:"Unauthorized"},401);
+ const data=normalizeTV(d);
+ if(!env.TRAIL_MONITOR)return reply({error:"Monitor binding missing"},503);
+ return env.TRAIL_MONITOR.get(env.TRAIL_MONITOR.idFromName("demo-single")).fetch(new Request("https://internal/tv-inbox",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)}));
+ }catch{return reply({error:"Invalid webhook or inbox unavailable"},400);}
+ }
  if(request.method!=="POST"||!["/order-resolve","/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
  if(!env.BRIDGE_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.BRIDGE_ACCESS_TOKEN)return reply({error:"Unauthorized"},401);
  if(env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
