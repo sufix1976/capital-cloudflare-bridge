@@ -10,6 +10,12 @@ export async function resolveUncertainOrder(storage,client,data){
  return {record:await transitionOrder(storage,key,"rejected")};
  }
  if(confirmation.dealStatus!=="ACCEPTED"||typeof confirmation.dealId!=="string"||!confirmation.dealId)throw Error("Still uncertain");
+ if(data.diagnostic===true){
+ const snapshot=await client.positions();
+ if(!Array.isArray(snapshot.positions))throw Error("Invalid positions snapshot");
+ if((await client.account()).accountId!==record.accountId)throw Error("Account changed");
+ return {diagnostic:true,dealId:confirmation.dealId,affectedDeals:Array.isArray(confirmation.affectedDeals)?confirmation.affectedDeals.map(x=>({dealId:x.dealId,status:x.status})):[],positions:snapshot.positions.filter(x=>x.market?.epic===record.epic).map(x=>({dealId:x.position?.dealId,size:x.position?.size,direction:x.position?.direction,stopLevel:x.position?.stopLevel}))};
+ }
  const result=await client.readPosition(confirmation.dealId).catch(e=>{throw Error('Position lookup: '+e.message);}),p=result.position;
  if(p?.dealId!==confirmation.dealId||result.market?.epic!==record.epic||!Number.isFinite(p.stopLevel)||p.stopLevel<=0)throw Error("Position not verified");
  if((await client.account()).accountId!==record.accountId)throw Error("Account changed");
