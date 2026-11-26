@@ -11,9 +11,13 @@ export async function executeDemoOrder(storage,client,env,data){
  const reservation=await reserveOrder(storage,data.signal_id,data.issued_at,epic);
  const {key}=reservation;
  if(reservation.duplicate)return {duplicate:true,record:reservation.record};
- let preview;
+ let preview,accountId;
  try{
+ const account=await client.account();
+ accountId=account.accountId;
+ if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
  preview=await previewOrder(client,data,env.BROKER_TIMEZONE);
+ if((await client.account()).accountId!==accountId)throw Error("Account changed");
  if(preview.payload.trailingStop!==false||!Number.isFinite(preview.payload.stopDistance))throw Error("Protective stop required");
  // Managed trailing must not be silently ignored before adoption is wired.
  if(preview.managedTrailing){
@@ -25,7 +29,7 @@ export async function executeDemoOrder(storage,client,env,data){
  await transitionOrder(storage,key,"cancelled-before-submit");
  throw e;
  }
- await transitionOrder(storage,key,"submitting");
+ await transitionOrder(storage,key,"submitting",{accountId});
  let reference;
  try{
  reference=await client.submitOrder(preview.payload);
