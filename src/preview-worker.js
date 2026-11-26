@@ -7,7 +7,7 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.1"});
+ if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.2"});
  if(path==="/webhook"&&request.method==="POST"){
  if(env.TRADING_MODE!=="DEMO"||env.TV_WEBHOOK_ENABLED!=="true"||env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Webhook disabled"},403);
  try{
