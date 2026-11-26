@@ -16,6 +16,7 @@ export async function transitionOrder(storage,key,status,fields={},now=Date.now(
  const old=await tx.get(key);
  if(!old||!allowed[old.status]?.includes(status))throw Error("Invalid order transition");
  const next={...old,status,updatedAt:now};
+ if(fields.accountId!==undefined)next.accountId=fields.accountId;
  if(fields.dealReference!==undefined)next.dealReference=fields.dealReference;
  if(fields.dealId!==undefined)next.dealId=fields.dealId;
  if(status==="confirmed"&&(typeof next.dealId!=="string"||!next.dealId))throw Error("Missing confirmed deal ID");
