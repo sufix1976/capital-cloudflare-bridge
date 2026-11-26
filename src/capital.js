@@ -33,6 +33,23 @@ export async function connectDemo(env, fetcher=fetch) {
    return market;
   },
   positions:()=>get("/positions"),
+  async submitOrder(payload){
+   if(env.TRADING_MODE!=="DEMO"||env.ORDER_WRITE_ENABLED!=="true")throw Error("Order write disabled");
+   if(!payload||typeof payload.epic!=="string"||!["BUY","SELL"].includes(payload.direction)||!Number.isFinite(payload.size)||payload.size<=0||!Number.isFinite(payload.stopDistance)||payload.stopDistance<=0||payload.trailingStop!==false)throw Error("Invalid protected order");
+   const response=await fetcher(BASE+"/positions",{method:"POST",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({epic:payload.epic,direction:payload.direction,size:payload.size,stopDistance:payload.stopDistance,trailingStop:false}),signal:AbortSignal.timeout(10000)});
+   if(!response.ok)throw Error("Order outcome requires reconciliation");
+   const result=await response.json();
+   if(typeof result.dealReference!=="string"||!result.dealReference)throw Error("Missing order reference");
+   return result.dealReference;
+  },
+  async confirmOrder(reference){
+   if(typeof reference!=="string"||!reference)throw Error("Invalid order reference");
+   return get("/confirms/"+encodeURIComponent(reference));
+  },
+  async readPosition(dealId){
+   if(typeof dealId!=="string"||!dealId)throw Error("Invalid deal ID");
+   return get("/positions/"+encodeURIComponent(dealId));
+  },
   async updateStop(dealId,stopLevel){
    if(env.TRAIL_WRITE_ENABLED!=="true"||!allowedTrailDeal(env,dealId)||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
    const path="/positions/"+encodeURIComponent(dealId);
