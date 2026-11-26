@@ -1,3 +1,4 @@
+import {executeDemoOrder} from "./order-coordinator.js";
 import {connectDemo,allowedTrailDeal} from "./capital.js";
 import {isManagedDeal} from "./order-adoption.js";
 import {transitionOrder,maintainJournal} from "./order-journal.js";
@@ -10,6 +11,15 @@ export class TrailMonitor {
  enabled(){return this.env.TRADING_MODE==="DEMO"&&this.env.TRAIL_WRITE_ENABLED==="true";}
  fetch(request){return this.serial(async()=>{
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
+ if(path==="/trade"){
+ if(this.env.TRADING_MODE!=="DEMO"||this.env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Order disabled"},403);
+ try{
+ const data=await request.json();
+ if(data.confirm!==true)return reply({error:"Explicit confirmation required"},403);
+ const result=await executeDemoOrder(this.ctx.storage,await this.broker(),this.env,data);
+ return reply(result,result.error?409:200);
+ }catch{return reply({error:"Order blocked or outcome uncertain; check broker before retrying"},409);}
+ }
  if(path==="/trail-status")return reply(await this.ctx.storage.get("state")??{active:false});
  if(path==="/trail-stop"){await this.ctx.storage.put("state",{active:false,reason:"manual stop"});await this.ctx.storage.deleteAlarm();return reply({active:false});}
  if(["/trail-add","/trail-remove","/trail-config"].includes(path)){
