@@ -1,3 +1,4 @@
+import {resolveClose} from "./close-resolution.js";
 import {dispatchStrategy} from "./strategy-dispatch.js";
 import {normalizeTV} from "./tv-webhook.js";
 import {resolveUncertainOrder} from "./order-resolution.js";
@@ -55,6 +56,11 @@ export class TrailMonitor {
  if(path==="/tv-inbox"){
  if(this.env.TV_WEBHOOK_ENABLED!=="true"||this.env.ORDER_WRITE_ENABLED!=="true"||this.env.TRADING_MODE!=="DEMO")return reply({error:"Webhook disabled"},403);
  try{return await this.enqueueTV(request);}catch{return reply({error:"Inbox unavailable"},503);}
+ }
+ if(path==="/close-resolve"){
+ if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
+ try{const data=await request.json();if(data.confirm!==true)return reply({error:"Explicit confirmation required"},403);return reply(await resolveClose(this.ctx.storage,await this.broker(),data));}
+ catch{return reply({error:"Close resolution blocked; lock retained"},409);}
  }
  if(path==="/order-resolve"){
  if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
