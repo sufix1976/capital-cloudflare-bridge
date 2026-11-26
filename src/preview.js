@@ -9,6 +9,8 @@ export async function previewOrder(client,data) {
  if(!epic||!["BUY","SELL"].includes(direction)) throw new Error("Invalid symbol or action");
  const percentage=data.risk_percentage??0.2;
  const trailing=data.trailing_stop??false;
+ const managed=data.managed_trailing??false;
+ if(typeof managed!=="boolean"||(managed&&trailing))throw new Error("Invalid managed trailing flag");
  if(typeof trailing!=="boolean") throw new Error("Invalid trailing flag");
  const [account,market,prefs]=await Promise.all([client.account(),client.market(epic),client.preferences()]);
  const i=market.instrument,r=market.dealingRules,s=market.snapshot;
@@ -23,13 +25,14 @@ export async function previewOrder(client,data) {
  function sizeRule(rule){if(rule?.unit!=="POINTS"||!Number.isFinite(rule.value)||rule.value<=0)throw new Error("Unknown size rule");return rule.value;}
  const sizing=calculateSize({equity:account.equity,available:account.available,percentage,marginPerUnit,minSize:sizeRule(r.minDealSize),maxSize:sizeRule(r.maxDealSize),sizeStep:sizeRule(r.minSizeIncrement)});
  const payload={epic,direction,size:sizing.size};
- if(trailing){
+ if(trailing||managed||data.sl_distance_price!==undefined){
  const distance=data.sl_distance_price;
  if(typeof distance!=="number"||!Number.isFinite(distance)||distance<=0)throw new Error("Invalid stop distance");
- if(r.trailingStopsPreference!=="AVAILABLE")throw new Error("Trailing support not verified");
+ if(trailing&&r.trailingStopsPreference!=="AVAILABLE")throw new Error("Trailing support not verified");
  function bounds(rule,reference){if(!Number.isFinite(rule?.value)||rule.value<0)throw new Error("Unknown stop rule");if(rule.unit==="POINTS")return rule.value;if(rule.unit==="PERCENTAGE")return reference*rule.value/100;throw new Error("Unknown stop unit");}
  if(distance<bounds(r.minStopOrProfitDistance,price)||distance>bounds(r.maxStopOrProfitDistance,s.bid))throw new Error("Stop outside broker limits");
- Object.assign(payload,{trailingStop:true,stopDistance:distance});
+ Object.assign(payload,{trailingStop:trailing,stopDistance:distance});
  }
- return {previewOnly:true,currency:account.currency,quote:{bid:s.bid,offer:s.offer},fxRate,marginPerUnit,...sizing,payload};
+ if(managed&&(!Number.isFinite(data.trailing_distance)||data.trailing_distance<=0||!Number.isFinite(data.trailing_step)||data.trailing_step<=0))throw new Error("Invalid managed trailing parameters");
+ return {previewOnly:true,...(managed?{managedTrailing:{distance:data.trailing_distance,step:data.trailing_step}}:{}),currency:account.currency,quote:{bid:s.bid,offer:s.offer},fxRate,marginPerUnit,...sizing,payload};
 }
