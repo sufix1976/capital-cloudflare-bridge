@@ -46,3 +46,10 @@ test("retention preserves uncertain and active orders",async()=>{
 });
 test("stale signals rejected",async()=>{await assert.rejects(reserveOrder(storage(),"old",Date.now()-600000,"GOLD"));});
 test("invalid transition rejected",async()=>{const s=storage();const r=await reserveOrder(s,"x",Date.now(),"GOLD");await assert.rejects(transitionOrder(s,r.key,"confirmed",{dealId:"x"}));});
+
+test("uncertain order blocks different signal on same account",async()=>{
+ const s=storage(),b=broker("timeout");
+ await executeDemoOrder(s,b,env,signal());
+ await assert.rejects(executeDemoOrder(s,b,env,{...signal(),signal_id:"test-2"}),/Unresolved order/);
+ assert.equal(b.calls(),1);
+});
