@@ -1,3 +1,5 @@
+import { connectDemo } from "./capital.js";
+import { previewOrder } from "./preview.js";
 import { resolveInstrument } from "./instruments.js";
 const BASE = "https://demo-api-capital.backend-capital.com";
 function reply(message,status=200){return new Response(message,{status,headers:{"Content-Type":"text/plain; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});}
@@ -5,13 +7,20 @@ async function capital(path,method,headers,body){return fetch(BASE+path,{method,
 export default {async fetch(request,env){
  const url=new URL(request.url);
  if(url.pathname==="/" && request.method==="GET") return reply("Bridge online - DEMO US500 BOS");
- if(url.pathname!=="/bos-update" || request.method!=="POST") return reply("Not Found",404);
+ if(!["/bos-update","/trade-preview"].includes(url.pathname) || request.method!=="POST") return reply("Not Found",404);
  const bearerValid=!!env.BRIDGE_ACCESS_TOKEN && request.headers.get("Authorization")==="Bearer "+env.BRIDGE_ACCESS_TOKEN;
  let data; try{data=await request.json();}catch{return reply("Invalid JSON",400);}
  const webhookValid=!!env.TV_WEBHOOK_SECRET && typeof data?.secret==="string" && data.secret===env.TV_WEBHOOK_SECRET;
  if(!bearerValid&&!webhookValid)return reply("Unauthorized",401);
  if(env.TRADING_MODE!=="DEMO")return reply("DEMO required",403);
  if(!env.CAPITAL_API_KEY||!env.CAPITAL_IDENTIFIER||!env.CAPITAL_PASSWORD)return reply("Missing configuration",503);
+ if(url.pathname==="/trade-preview"){
+ if(!bearerValid)return reply("Bearer required for preview",401);
+ try{
+ const preview=await previewOrder(await connectDemo(env),data);
+ return new Response(JSON.stringify(preview),{headers:{"Content-Type":"application/json","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
+ }catch{return reply("Preview blocked: broker data or sizing requirements not verified",409);}
+ }
  const entryPrice=Number(data?.entryPrice),entryTime=Number(data?.entryTime),barTime=Number(data?.barTime);
  if(!Number.isFinite(entryPrice)||entryPrice<=0||!Number.isFinite(entryTime)||!Number.isFinite(barTime)||entryTime>barTime||barTime>Date.now()+30000||Date.now()-barTime>120000)return reply("Invalid or outdated BOS signal",409);
  const instrument=resolveInstrument(data?.symbol),direction=data?.direction,stop=data?.stopLevel;
