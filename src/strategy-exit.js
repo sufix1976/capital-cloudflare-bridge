@@ -16,6 +16,15 @@ export async function exitStrategy(storage,client,env,data){
  if(await storage.get(eventKey))return {duplicate:true};
  const {accountId}=await client.account();
  if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
+ let closeCursor;
+ for(;;){
+ const locks=await storage.list({prefix:"close:",limit:128,...(closeCursor?{startAfter:closeCursor}:{})});
+ for(const [id,lock] of locks){
+ closeCursor=id;
+ if(!lock.accountId||lock.accountId===accountId)throw Error("Unresolved close; manual reconciliation required");
+ }
+ if(locks.size<128)break;
+ }
  const matches=[];let cursor;
  for(;;){
  const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
