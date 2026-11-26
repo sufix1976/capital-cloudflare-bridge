@@ -4,7 +4,10 @@ export async function connectDemo(env, fetcher=fetch) {
  if(env.TRADING_MODE!=="DEMO") throw new Error("DEMO required");
  if(!env.CAPITAL_API_KEY||!env.CAPITAL_IDENTIFIER||!env.CAPITAL_PASSWORD) throw new Error("Missing configuration");
  const login=await fetcher(BASE+"/session",{method:"POST",headers:{"Content-Type":"application/json","X-CAP-API-KEY":env.CAPITAL_API_KEY},body:JSON.stringify({identifier:env.CAPITAL_IDENTIFIER,password:env.CAPITAL_PASSWORD,encryptedPassword:false}),signal:AbortSignal.timeout(10000)});
- if(!login.ok) throw new Error("Login HTTP "+login.status);
+ if(!login.ok) {
+ let code="";try{const body=await login.json();if(typeof body.errorCode==="string"&&/^error\.[a-zA-Z0-9_.-]{1,100}$/.test(body.errorCode))code=body.errorCode;}catch{}
+ const err=new Error("Login HTTP "+login.status);err.brokerCode=code;throw err;
+ }
  const CST=login.headers.get("CST"), token=login.headers.get("X-SECURITY-TOKEN");
  if(!CST||!token) throw new Error("Missing tokens");
  const headers={CST,"X-SECURITY-TOKEN":token,"Accept":"application/json"};
