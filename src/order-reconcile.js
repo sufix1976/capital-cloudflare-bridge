@@ -1,7 +1,8 @@
 import {transitionOrder} from "./order-journal.js";
 // Only use a complete successful broker positions snapshot from the same account.
-export async function reconcileClosedOrders(storage,snapshot,now=Date.now()){
+export async function reconcileClosedOrders(storage,snapshot,accountId,now=Date.now()){
  if(!Array.isArray(snapshot?.positions)||snapshot.positions.some(x=>typeof x?.position?.dealId!=="string"||!x.position.dealId))throw Error("Invalid positions snapshot");
+ if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
  const ids=new Set(snapshot.positions.map(x=>x.position.dealId));
  let startAfter,closed=0;
  for(;;){
@@ -9,7 +10,7 @@ export async function reconcileClosedOrders(storage,snapshot,now=Date.now()){
  if(!page.size)break;
  for(const [key,record] of page){
  startAfter=key;
- if(record.status==="confirmed"&&record.dealId&&!ids.has(record.dealId)){
+ if(record.status==="confirmed"&&record.accountId===accountId&&record.dealId&&!ids.has(record.dealId)){
  await transitionOrder(storage,key,"closed",{},now);closed++;
  }
  }
