@@ -5,7 +5,7 @@ import worker from "../src/preview-worker.js";
 function setup(status="REJECTED",accountId="A",reference="ref"){
  let record={status:"uncertain",accountId:"A",epic:"GOLD",dealReference:reference};
  const s={get:async()=>record,put:async(k,v)=>{record=v;},transaction:async fn=>fn(s)};
- const b={account:async()=>({accountId}),confirmOrder:async()=>({dealStatus:status,dealId:"D"}),readPosition:async()=>({position:{dealId:"D",stopLevel:100},market:{epic:"GOLD"}})};
+ const b={account:async()=>({accountId}),confirmOrder:async()=>({dealStatus:status,dealId:"order-D",affectedDeals:[{dealId:"D",status:"OPENED"}]}),readPosition:async()=>({position:{dealId:"D",stopLevel:100},market:{epic:"GOLD"}})};
  return {s,b};
 }
 const data={signal_id:"test",confirm:true};
