@@ -38,6 +38,7 @@ export class TrailMonitor {
  if(existing?.status!=="queued"){await storage.delete(key);continue;}
  await storage.transaction(async tx=>{await tx.put(id,{status:"processing",createdAt:Date.now()});await tx.delete(key);});
  let status="blocked";
+ console.info("tv.processing",{symbol:data.symbol,action:data.action,signal_id:data.signal_id});
  try{
  if(this.env.TV_WEBHOOK_ENABLED==="true"&&this.env.ORDER_WRITE_ENABLED==="true"&&this.env.TRADING_MODE==="DEMO"){
  normalizeTV(data);
@@ -45,7 +46,8 @@ export class TrailMonitor {
  const result=await dispatchStrategy(storage,await this.broker(),this.env,data);
  status=result.error||result.duplicate?"uncertain":result.record?.status==="rejected"?"rejected":"completed";
  }
- }catch{status="uncertain";}
+ }catch(e){status="uncertain";const m=String(e?.message??"");console.warn("tv.processing.failed",{symbol:data.symbol,signal_id:data.signal_id,reason:/^(Invalid or stale signal timestamp|Login HTTP \d{3}|Broker read HTTP \d{3}|Missing tokens|Missing configuration)$/.test(m)?m:"Internal processing failure"});}
+ console.info("tv.finished",{symbol:data.symbol,signal_id:data.signal_id,status});
  await storage.put(id,{status,finishedAt:Date.now()});
  await storage.put("maintenance-enabled",true);
  }
@@ -55,7 +57,7 @@ export class TrailMonitor {
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
  if(path==="/tv-inbox"){
  if(this.env.TV_WEBHOOK_ENABLED!=="true"||this.env.ORDER_WRITE_ENABLED!=="true"||this.env.TRADING_MODE!=="DEMO")return reply({error:"Webhook disabled"},403);
- try{return await this.enqueueTV(request);}catch{return reply({error:"Inbox unavailable"},503);}
+ try{return await this.enqueueTV(request);}catch(e){console.warn("tv.inbox.failed",{reason:e?.message==="Inbox full"?"Inbox full":"Inbox validation or storage failure"});return reply({error:"Inbox unavailable"},503);}
  }
  if(path==="/close-resolve"){
  if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
