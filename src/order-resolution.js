@@ -16,8 +16,11 @@ export async function resolveUncertainOrder(storage,client,data){
  if((await client.account()).accountId!==record.accountId)throw Error("Account changed");
  return {diagnostic:true,dealId:confirmation.dealId,affectedDeals:Array.isArray(confirmation.affectedDeals)?confirmation.affectedDeals.map(x=>({dealId:x.dealId,status:x.status})):[],positions:snapshot.positions.filter(x=>x.market?.epic===record.epic).map(x=>({dealId:x.position?.dealId,size:x.position?.size,direction:x.position?.direction,stopLevel:x.position?.stopLevel}))};
  }
- const result=await client.readPosition(confirmation.dealId).catch(e=>{throw Error('Position lookup: '+e.message);}),p=result.position;
- if(p?.dealId!==confirmation.dealId||result.market?.epic!==record.epic||!Number.isFinite(p.stopLevel)||p.stopLevel<=0)throw Error("Position not verified");
+ const opened=confirmation.affectedDeals?.filter(x=>x.status==="OPENED")??[];
+ if(opened.length!==1||typeof opened[0].dealId!=="string"||!opened[0].dealId)throw Error("Unique opened deal required");
+ const dealId=opened[0].dealId;
+ const result=await client.readPosition(dealId).catch(e=>{throw Error('Position lookup: '+e.message);}),p=result.position;
+ if(p?.dealId!==dealId||result.market?.epic!==record.epic||!Number.isFinite(p.stopLevel)||p.stopLevel<=0)throw Error("Position not verified");
  if((await client.account()).accountId!==record.accountId)throw Error("Account changed");
  return {record:await transitionOrder(storage,key,"confirmed",{dealId:p.dealId}),warning:"Check position and protective stop manually; trailing not automatically resumed"};
 }
