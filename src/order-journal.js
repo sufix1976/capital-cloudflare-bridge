@@ -1,4 +1,4 @@
-import {validateSignal,pruneOrders} from "./order-retention.js";
+import {validateSignal,pruneOrders,pruneSignalRecords} from "./order-retention.js";
 // Call from the serialized Durable Object coordinator only.
 export async function reserveOrder(storage,signalId,issuedAt,epic,now=Date.now()){
  const key=validateSignal(signalId,issuedAt,now);
@@ -30,7 +30,7 @@ export async function transitionOrder(storage,key,status,fields={},now=Date.now(
 export async function maintainJournal(storage,now=Date.now()){
  const day=new Date(now).toISOString().slice(0,10);
  if(await storage.get("order-prune-day")===day)return 0;
- const removed=await pruneOrders(storage,now);
+ const removed=await pruneOrders(storage,now)+await pruneSignalRecords(storage,now);
  await storage.put("order-prune-day",day);
  return removed;
 }
