@@ -3,5 +3,21 @@
   "main": "src/preview-worker.js",
   "compatibility_date": "2026-11-26",
   "keep_vars": true,
-  "preview_urls": false
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TRAIL_MONITOR",
+        "class_name": "TrailMonitor"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "trail-v1",
+      "new_sqlite_classes": [
+        "TrailMonitor"
+      ]
+    }
+  ]
 }
