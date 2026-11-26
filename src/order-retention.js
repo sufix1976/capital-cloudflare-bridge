@@ -19,3 +19,19 @@ export async function pruneOrders(storage,now=Date.now()){
  }
  return removed;
 }
+
+export async function pruneSignalRecords(storage,now=Date.now()){
+ let removed=0;
+ for(const prefix of ["tv:","dispatch:","exit:"]){
+ let cursor;
+ for(;;){
+ const page=await storage.list({prefix,limit:128,...(cursor?{startAfter:cursor}:{})});
+ for(const [key,r] of page){
+ cursor=key;
+ if(["completed","rejected","blocked"].includes(r.status)&&Number.isSafeInteger(r.finishedAt)&&now-r.finishedAt>=RETENTION_MS){await storage.delete(key);removed++;}
+ }
+ if(page.size<128)break;
+ }
+ }
+ return removed;
+}
