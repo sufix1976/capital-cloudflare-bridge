@@ -12,7 +12,15 @@ export async function dispatchStrategy(storage,client,env,data){
  const key="dispatch:"+data.signal_id;
  const previous=await storage.get(key);
  if(previous)return {duplicate:true,status:previous.status};
- await storage.put(key,{status:"processing",createdAt:Date.now()});
+ const stream="strategy-clock:"+data.strategy_id+":"+resolveInstrument(data.symbol);
+ const admitted=await storage.transaction(async tx=>{
+ const last=await tx.get(stream);
+ if(last&&data.issued_at<=last.issuedAt)return false;
+ await tx.put(stream,{issuedAt:data.issued_at,signalId:data.signal_id});
+ await tx.put(key,{status:"processing",createdAt:Date.now()});
+ return true;
+ });
+ if(!admitted)return {error:"Out-of-order strategy signal"};
  try{
  let result;
  const flip=data.action.startsWith("flip_"),exit=data.action.startsWith("exit_");
