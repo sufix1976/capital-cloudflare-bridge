@@ -1,3 +1,5 @@
+import {dispatchStrategy} from "./strategy-dispatch.js";
+import {normalizeTV} from "./tv-webhook.js";
 import {resolveUncertainOrder} from "./order-resolution.js";
 import {executeDemoOrder} from "./order-coordinator.js";
 import {connectDemo,allowedTrailDeal} from "./capital.js";
@@ -13,8 +15,43 @@ export class TrailMonitor {
  enabled(){return this.env.TRADING_MODE==="DEMO"&&this.env.TRAIL_WRITE_ENABLED==="true";}
  async scheduleMaintenance(){const alarm=await this.ctx.storage.getAlarm();if(alarm==null)await this.ctx.storage.setAlarm(Date.now()+86400000);}
  async maintenance(){const day=new Date().toISOString().slice(0,10);if(await this.ctx.storage.get("reconcile-day")===day)return;const client=await this.broker();const before=await client.account();const snapshot=await client.positions();const after=await client.account();if(!before.accountId||before.accountId!==after.accountId)throw Error("Account changed");await reconcileClosedOrders(this.ctx.storage,snapshot,before.accountId);await maintainJournal(this.ctx.storage);await this.ctx.storage.put("reconcile-day",day);}
+ async enqueueTV(request){
+ const data=normalizeTV(await request.json()),storage=this.ctx.storage,key="tv:"+data.signal_id;
+ const duplicate=await storage.transaction(async tx=>{
+ if(await tx.get(key))return true;
+ const pending=await tx.list({prefix:"tv-pending:",limit:21});
+ if(pending.size>=20)throw Error("Inbox full");
+ await tx.put(key,{status:"queued",createdAt:Date.now()});
+ await tx.put("tv-pending:"+String(Date.now()).padStart(13,"0")+":"+data.signal_id,data);
+ return false;
+ });
+ const alarm=await storage.getAlarm();if(alarm==null||alarm>Date.now()+100)await storage.setAlarm(Date.now()+100);
+ return Response.json({accepted:true,duplicate,signal_id:data.signal_id},{status:202});
+ }
+ async processTV(){
+ const storage=this.ctx.storage,pending=await storage.list({prefix:"tv-pending:",limit:1});
+ for(const [key,data] of pending){
+ const id="tv:"+data.signal_id;
+ await storage.transaction(async tx=>{await tx.put(id,{status:"processing",createdAt:Date.now()});await tx.delete(key);});
+ let status="blocked";
+ try{
+ if(this.env.TV_WEBHOOK_ENABLED==="true"&&this.env.ORDER_WRITE_ENABLED==="true"&&this.env.TRADING_MODE==="DEMO"){
+ normalizeTV(data);
+ await storage.put("maintenance-enabled",true);
+ const result=await dispatchStrategy(storage,await this.broker(),this.env,data);
+ status=result.error?"uncertain":result.record?.status==="rejected"?"rejected":"completed";
+ }
+ }catch{status="uncertain";}
+ await storage.put(id,{status,finishedAt:Date.now()});
+ }
+ }
+ async scheduleTV(){const storage=this.ctx.storage;if((await storage.list({prefix:"tv-pending:",limit:1})).size){const alarm=await storage.getAlarm();if(alarm==null||alarm>Date.now()+100)await storage.setAlarm(Date.now()+100);}}
  fetch(request){return this.serial(async()=>{
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
+ if(path==="/tv-inbox"){
+ if(this.env.TV_WEBHOOK_ENABLED!=="true"||this.env.ORDER_WRITE_ENABLED!=="true"||this.env.TRADING_MODE!=="DEMO")return reply({error:"Webhook disabled"},403);
+ try{return await this.enqueueTV(request);}catch{return reply({error:"Inbox unavailable"},503);}
+ }
  if(path==="/order-resolve"){
  if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  try{
@@ -75,6 +112,8 @@ export class TrailMonitor {
  }catch(e){const message=String(e?.message??"");const detail=/^(Login HTTP \d{3}|Broker read HTTP \d{3}|Invalid position identity|Position not uniquely matched|Market metadata not verified|Invalid trailing inputs|Invalid stop distance|EPIC mismatch|Missing tokens|Missing configuration)$/.test(message)?message:"Unexpected validation or storage error";return reply({error:"Start validation failed",stage,symbol,detail},409);}
  });}
  alarm(){return this.serial(async()=>{
+ try{
+ await this.processTV();
  const maintenance=await this.ctx.storage.get("maintenance-enabled");
  if(maintenance&&this.env.TRADING_MODE==="DEMO"){try{await this.maintenance();}catch{this.client=null;this.clientSince=0;}}
  const state=await this.ctx.storage.get("state");if(!state?.active){if(maintenance)await this.ctx.storage.setAlarm(Date.now()+86400000);return;}
@@ -105,5 +144,6 @@ export class TrailMonitor {
  }
  }catch{this.client=null;this.clientSince=0;state.active=false;state.reason=state.dailyCycles>=20000?"Daily cycle budget reached":"Broker or validation error; check broker before restarting";}
  await this.ctx.storage.put("state",state);if(state.active)await this.ctx.storage.setAlarm(Date.now()+5000);else if(maintenance)await this.ctx.storage.setAlarm(Date.now()+86400000);
+ }finally{await this.scheduleTV();}
  });}
 }
