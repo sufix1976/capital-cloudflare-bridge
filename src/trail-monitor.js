@@ -28,7 +28,6 @@ export class TrailMonitor {
  await previewTrail(await this.broker(),data);
  if(Date.now()>=state.expires)return reply({error:"Test expired"},409);
  if(item)item.data=data;else state.positions.push({data,active:true,checks:0,updates:0});
- }catch(e){if(writing||/^Broker read HTTP|^Login HTTP/.test(String(e?.message??"")))throw e;item.active=false;item.reason="Position validation failed; check broker";}
  }
  state.active=state.positions.some(x=>x.active);
  await this.ctx.storage.put("state",state);
@@ -70,6 +69,7 @@ export class TrailMonitor {
  const fresh=await previewTrail(client,item.data);
  if(Date.now()<state.expires&&meetsStep(fresh,item.data.step)){writing=true;item.lastStop=await client.updateStop(fresh.dealId,fresh.stopLevel);item.lastVerified=Date.now();item.updates++;}
  }
+ }catch(e){if(writing||/^Broker read HTTP|^Login HTTP/.test(String(e?.message??"")))throw e;item.active=false;item.reason="Position validation failed; check broker";}
  }
  state.active=state.positions.some(x=>x.active)&&Date.now()<state.expires;
  state.lastCheck=Date.now();state.sessionLoginsSinceInstanceStart=this.logins;
