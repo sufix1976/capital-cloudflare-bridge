@@ -7,7 +7,7 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.2"});
+ if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.3"});
  if(path==="/webhook"&&request.method==="POST"){
  if(env.TRADING_MODE!=="DEMO"||env.TV_WEBHOOK_ENABLED!=="true"||env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Webhook disabled"},403);
  try{
@@ -62,7 +62,7 @@ export default {async fetch(request,env){
  const market=await client.market(epic);
  stage="preferences";
  const preferences=await client.preferences();
- return reply({epic,instrument:market.instrument,dealingRules:market.dealingRules,snapshot:market.snapshot,leverages:preferences.leverages??null});
+ return reply({epic,instrument:market.instrument,dealingRules:market.dealingRules,snapshot:market.snapshot,leverages:preferences.leverages??null,hedgingMode:preferences.hedgingMode??null});
  }
  stage="sizing";
  return reply(await previewOrder(client,data,env.BROKER_TIMEZONE));
