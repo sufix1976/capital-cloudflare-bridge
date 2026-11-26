@@ -34,7 +34,7 @@ export async function connectDemo(env, fetcher=fetch) {
   },
   positions:()=>get("/positions"),
   async updateStop(dealId,stopLevel){
-   if(env.TRAIL_WRITE_ENABLED!=="true"||env.TRAIL_TEST_DEAL_ID!==dealId||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
+   if(env.TRAIL_WRITE_ENABLED!=="true"||!allowedTrailDeal(env,dealId)||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
    const path="/positions/"+encodeURIComponent(dealId);
    const response=await fetcher(BASE+path,{method:"PUT",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({stopLevel}),signal:AbortSignal.timeout(10000)});
    if(!response.ok)throw new Error("Stop write HTTP "+response.status);
@@ -48,3 +48,5 @@ export async function connectDemo(env, fetcher=fetch) {
   }
  };
 }
+
+export function allowedTrailDeal(env,id){return typeof id==="string"&&id.length>0&&[env.TRAIL_TEST_DEAL_ID,...String(env.TRAIL_TEST_DEAL_IDS??"").split(",").map(x=>x.trim())].includes(id);}
