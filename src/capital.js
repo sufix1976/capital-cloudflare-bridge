@@ -1,4 +1,4 @@
-// Read-only discovery client for Capital.com DEMO.
+// Demo broker client for Capital.com DEMO.
 const BASE="https://demo-api-capital.backend-capital.com/api/v1";
 export async function connectDemo(env, fetcher=fetch) {
  if(env.TRADING_MODE!=="DEMO") throw new Error("DEMO required");
@@ -32,6 +32,19 @@ export async function connectDemo(env, fetcher=fetch) {
    if(market.instrument?.epic!==epic) throw new Error("EPIC mismatch");
    return market;
   },
-  positions:()=>get("/positions")
+  positions:()=>get("/positions"),
+  async updateStop(dealId,stopLevel){
+   if(env.TRAIL_WRITE_ENABLED!=="true"||env.TRAIL_TEST_DEAL_ID!==dealId||!Number.isFinite(stopLevel)||stopLevel<=0)throw new Error("Stop write disabled");
+   const path="/positions/"+encodeURIComponent(dealId);
+   const response=await fetcher(BASE+path,{method:"PUT",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({stopLevel}),signal:AbortSignal.timeout(10000)});
+   if(!response.ok)throw new Error("Stop write HTTP "+response.status);
+   const update=await response.json();
+   if(!update.dealReference)throw new Error("Missing confirmation reference");
+   const confirmation=await get("/confirms/"+encodeURIComponent(update.dealReference));
+   if(confirmation.dealStatus!=="ACCEPTED")throw new Error("Stop update not accepted");
+   const verified=await get(path);
+   if(verified.position?.dealId!==dealId||typeof verified.position?.stopLevel!=="number"||Math.abs(verified.position.stopLevel-stopLevel)>0.000001)throw new Error("Stop verification failed");
+   return verified.position.stopLevel;
+  }
  };
 }
