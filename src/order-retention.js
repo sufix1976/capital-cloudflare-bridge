@@ -14,7 +14,7 @@ export async function pruneOrders(storage,now=Date.now()){
  for(;;){
  const page=await storage.list({prefix:"order:",limit:128,...(startAfter?{startAfter}:{})});
  if(!page.size)break;
- for(const [key,record] of page){if(canDeleteOrder(record,now)){await storage.delete(key);removed++;}startAfter=key;}
+ for(const [key,record] of page){if(canDeleteOrder(record,now)&&!(await storage.get("close:"+key))){await storage.delete(key);removed++;}startAfter=key;}
  if(page.size<128)break;
  }
  return removed;
