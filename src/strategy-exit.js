@@ -48,6 +48,7 @@ export async function exitStrategy(storage,client,env,data){
  if(confirmation.dealStatus!=="ACCEPTED")throw Error("Close not confirmed");
  if((await snapshot(client,accountId)).some(x=>x.position.dealId===r.dealId))throw Error("Position still present");
  await transitionOrder(storage,key,"closed");
+ await storage.put(eventKey,{status:"completed",finishedAt:Date.now()});
  await storage.delete(lock);
  return {closed:true,dealId:r.dealId};
  }catch{return {error:"Close outcome uncertain; no automatic retry"};}
