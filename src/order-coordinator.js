@@ -49,7 +49,9 @@ export async function executeDemoOrder(storage,client,env,data){
  return {record:await transitionOrder(storage,key,"rejected")};
  }
  if(confirmation.dealStatus!=="ACCEPTED"||typeof confirmation.dealId!=="string"||!confirmation.dealId)throw Error("Confirmation uncertain");
- const dealId=confirmation.dealId;
+ const opened=confirmation.affectedDeals?.filter(x=>x.status==="OPENED")??[];
+ if(opened.length!==1||typeof opened[0].dealId!=="string"||!opened[0].dealId)throw Error("Unique opened deal required");
+ const dealId=opened[0].dealId;
  const result=await client.readPosition(dealId);
  const p=result.position,m=result.market;
  if(p?.dealId!==dealId||m?.epic!==epic||p.direction!==preview.payload.direction||Math.abs(p.size-preview.payload.size)>1e-8||!Number.isFinite(p.size)||!Number.isFinite(p.level)||!Number.isFinite(p.stopLevel)||p.stopLevel<=0)throw Error("Position verification failed");
