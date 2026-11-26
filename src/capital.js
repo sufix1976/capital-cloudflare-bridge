@@ -42,6 +42,14 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
    if(typeof result.dealReference!=="string"||!result.dealReference)throw Error("Missing order reference");
    return result.dealReference;
   },
+  async closePosition(dealId){
+   if(env.TRADING_MODE!=="DEMO"||env.ORDER_WRITE_ENABLED!=="true"||typeof dealId!=="string"||!dealId)throw Error("Close disabled");
+   const response=await fetcher(BASE+"/positions/"+encodeURIComponent(dealId),{method:"DELETE",headers,signal:AbortSignal.timeout(10000)});
+   if(!response.ok)throw Error("Close outcome requires reconciliation");
+   const result=await response.json();
+   if(typeof result.dealReference!=="string"||!result.dealReference)throw Error("Missing close reference");
+   return result.dealReference;
+  },
   async confirmOrder(reference){
    if(typeof reference!=="string"||!reference)throw Error("Invalid order reference");
    return get("/confirms/"+encodeURIComponent(reference));
