@@ -13,6 +13,7 @@ export async function executeDemoOrder(storage,client,env,data){
  await maintainJournal(storage);
  const reservation=await reserveOrder(storage,data.signal_id,data.issued_at,epic);
  const {key}=reservation;
+ if(reservation.duplicate)console.info("order.duplicate",{symbol:epic,signal_id:data.signal_id});
  if(reservation.duplicate)return {duplicate:true,record:reservation.record};
  let preview,accountId;
  try{
@@ -54,6 +55,7 @@ export async function executeDemoOrder(storage,client,env,data){
  if(page.size<128)break;
  }
  preview=await previewOrder(client,data,env.BROKER_TIMEZONE);
+ console.info("order.sizing",{symbol:epic,signal_id:data.signal_id,size:preview.payload.size,budget:preview.budget,estimatedMargin:preview.estimatedMargin});
  if((await client.account()).accountId!==accountId)throw Error("Account changed");
  if(preview.payload.trailingStop!==false||!Number.isFinite(preview.payload.stopDistance))throw Error("Protective stop required");
  // Managed trailing must not be silently ignored before adoption is wired.
@@ -63,17 +65,20 @@ export async function executeDemoOrder(storage,client,env,data){
  if((state?.positions??[]).filter(x=>x.active).length>=3)throw Error("Monitor capacity reached");
  }
  }catch(e){
+ console.warn("order.blocked",{symbol:epic,signal_id:data.signal_id,reason:safeReason(e)});
  await transitionOrder(storage,key,"cancelled-before-submit");
  throw e;
  }
  await transitionOrder(storage,key,"submitting",{accountId,strategyId,direction:preview.payload.direction});
  let reference;
  try{
+ console.info("order.submit",{symbol:epic,signal_id:data.signal_id});
  reference=await client.submitOrder(preview.payload);
  // Persist reference before requesting confirmation.
  await transitionOrder(storage,key,"uncertain",{dealReference:reference});
  const confirmation=await client.confirmOrder(reference);
  if(confirmation.dealStatus==="REJECTED"){
+ console.warn("order.rejected",{symbol:epic,signal_id:data.signal_id});
  return {record:await transitionOrder(storage,key,"rejected")};
  }
  if(confirmation.dealStatus!=="ACCEPTED"||typeof confirmation.dealId!=="string"||!confirmation.dealId)throw Error("Confirmation uncertain");
@@ -88,14 +93,18 @@ export async function executeDemoOrder(storage,client,env,data){
  const distance=p.direction==="BUY"?p.level-p.stopLevel:p.stopLevel-p.level;
  if(distance<=0||distance>preview.payload.stopDistance+1e-8)throw Error("Protective stop verification failed");
  const record=await transitionOrder(storage,key,"confirmed",{dealId});
+ console.info("order.confirmed",{symbol:epic,signal_id:data.signal_id,size:p.size,stopLevel:p.stopLevel});
  if(preview.managedTrailing){
  try{await adoptConfirmedOrder(storage,client,key,{...preview.managedTrailing,direction:p.direction});}
  catch{return {record,stopLevel:p.stopLevel,size:p.size,error:"Position confirmed but trailing adoption failed; check broker"};}
  }
  return {record,stopLevel:p.stopLevel,size:p.size,managedTrailing:!!preview.managedTrailing};
- }catch{
+ }catch(e){
+ console.warn("order.uncertain",{symbol:epic,signal_id:data.signal_id,reason:safeReason(e)});
  const current=await storage.get(key);
  if(current?.status==="submitting")await transitionOrder(storage,key,"uncertain",reference?{dealReference:reference}:{});
  return {error:"Order outcome uncertain; reconcile with broker before any retry",record:await storage.get(key)};
  }
 }
+
+function safeReason(e){const m=String(e?.message??"");return /^(Invalid (equity|available|percentage|marginPerUnit|quote|account data|stop distance|sizing limits)|Unknown (margin requirements|size rule|currency|stop rule|stop unit)|No valid size within margin budget|Insufficient available margin|Stop outside broker limits|Market not tradeable|Currency or contract conversion not verified|No verified fresh FX quote|Monitor capacity reached|Trailing disabled|Account changed|Account identity required|Unresolved (order|close); manual reconciliation required|Strategy position already registered; reconcile before entry|Protective stop required|Hedging mode required|Order outcome requires reconciliation|Confirmation uncertain|Unexpected affected deals|Unique opened deal required|Position verification failed|Protective stop verification failed|Broker read HTTP \d{3}|Login HTTP \d{3})$/.test(m)?m:"Internal or broker failure";}
