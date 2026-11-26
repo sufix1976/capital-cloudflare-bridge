@@ -23,6 +23,16 @@ export async function executeDemoOrder(storage,client,env,data){
  const snapshot=await client.positions();
  if((await client.account()).accountId!==accountId)throw Error("Account changed");
  await reconcileClosedOrders(storage,snapshot,accountId);
+ const state=await storage.get("state");
+ if(state?.positions){
+ let changed=false;
+ for(const item of state.positions){
+ if(!item.active||!item.orderKey)continue;
+ const record=await storage.get(item.orderKey);
+ if(record?.accountId===accountId&&record.status==="closed"){item.active=false;item.reason="position closed";changed=true;}
+ }
+ if(changed){state.active=state.positions.some(x=>x.active);await storage.put("state",state);}
+ }
  }
  let cursor;
  for(;;){
@@ -58,7 +68,9 @@ export async function executeDemoOrder(storage,client,env,data){
  return {record:await transitionOrder(storage,key,"rejected")};
  }
  if(confirmation.dealStatus!=="ACCEPTED"||typeof confirmation.dealId!=="string"||!confirmation.dealId)throw Error("Confirmation uncertain");
+ if((await client.account()).accountId!==accountId)throw Error("Account changed");
  const opened=confirmation.affectedDeals?.filter(x=>x.status==="OPENED")??[];
+ if(confirmation.affectedDeals?.length!==1)throw Error("Unexpected affected deals");
  if(opened.length!==1||typeof opened[0].dealId!=="string"||!opened[0].dealId)throw Error("Unique opened deal required");
  const dealId=opened[0].dealId;
  const result=await client.readPosition(dealId);
