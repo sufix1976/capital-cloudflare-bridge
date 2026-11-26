@@ -1,0 +1,6 @@
+{
+  "name": "capital-trading-preview",
+  "main": "src/preview-worker.js",
+  "compatibility_date": "2026-11-26",
+  "keep_vars": true
+}
