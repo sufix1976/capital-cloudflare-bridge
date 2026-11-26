@@ -1,6 +1,7 @@
 import {previewOrder} from "./preview.js";
 import {reserveOrder,transitionOrder,maintainJournal} from "./order-journal.js";
 import {adoptConfirmedOrder} from "./order-adoption.js";
+import {reconcileClosedOrders} from "./order-reconcile.js";
 import {resolveInstrument} from "./instruments.js";
 // Must run inside the monitor's serialized queue.
 export async function executeDemoOrder(storage,client,env,data){
@@ -18,6 +19,11 @@ export async function executeDemoOrder(storage,client,env,data){
  const account=await client.account();
  accountId=account.accountId;
  if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
+ if(strategyId){
+ const snapshot=await client.positions();
+ if((await client.account()).accountId!==accountId)throw Error("Account changed");
+ await reconcileClosedOrders(storage,snapshot,accountId);
+ }
  let cursor;
  for(;;){
  const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
