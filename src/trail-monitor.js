@@ -2,8 +2,8 @@ import {connectDemo,allowedTrailDeal} from "./capital.js";
 import {previewTrail} from "./trail-preview.js";
 export function meetsStep(next,step){return next.update&&Number.isFinite(step)&&step>0&&Math.abs(next.stopLevel-next.previousStop)+1e-9>=step;}
 export class TrailMonitor {
- constructor(ctx,env){this.ctx=ctx;this.env=env;this.queue=Promise.resolve();this.client=null;this.clientSince=0;this.logins=0;}
- async broker(){if(!this.client||Date.now()-this.clientSince>=300000){this.client=await connectDemo(this.env);this.clientSince=Date.now();this.logins++;}return this.client;}
+ constructor(ctx,env){this.ctx=ctx;this.env=env;this.queue=Promise.resolve();this.client=null;this.clientSince=0;this.logins=0;this.lastRequest=0;this.apiCalls=0;}
+ async broker(){if(!this.client||Date.now()-this.clientSince>=480000){this.client=await connectDemo(this.env,async (...args)=>{const wait=Math.max(0,250-(Date.now()-this.lastRequest));if(wait)await new Promise(r=>setTimeout(r,wait));this.lastRequest=Date.now();this.apiCalls++;const response=await fetch(...args);if(response.ok)this.clientSince=Date.now();return response;});this.clientSince=Date.now();this.logins++;}return this.client;}
  serial(fn){const next=this.queue.then(fn,fn);this.queue=next.catch(()=>{});return next;}
  enabled(){return this.env.TRADING_MODE==="DEMO"&&this.env.TRAIL_WRITE_ENABLED==="true";}
  fetch(request){return this.serial(async()=>{
@@ -14,20 +14,20 @@ export class TrailMonitor {
  try{
  const d=await request.json(),state=await this.ctx.storage.get("state");
  if(!this.enabled()||d.confirm!==true)return reply({error:"Not enabled"},403);
- if(!state?.active||!Array.isArray(state.positions)||Date.now()>=state.expires)return reply({error:"No active test"},409);
+ if(!state?.active||!Array.isArray(state.positions)||(state.expires!=null&&Date.now()>=state.expires))return reply({error:"No active test"},409);
  const item=state.positions.find(x=>x.active&&x.data.dealId===d.dealId);
  if(path==="/trail-remove"){
  if(!item)return reply({error:"Position not monitored"},404);
  item.active=false;item.reason="manual removal";
  }else{
  if(!allowedTrailDeal(this.env,d.dealId))return reply({error:"Unauthorized deal"},403);
- if(path==="/trail-add"&&(item||state.positions.length>=3))return reply({error:"Duplicate or test limit reached"},409);
+ if(path==="/trail-add"&&(item||state.positions.filter(x=>x.active).length>=3))return reply({error:"Duplicate or test limit reached"},409);
  if(path==="/trail-config"&&!item)return reply({error:"Position not monitored"},404);
  const data=path==="/trail-config"?{...item.data,distance:d.distance??item.data.distance,step:d.step??item.data.step}:{symbol:d.symbol,dealId:d.dealId,direction:d.direction,distance:d.distance,step:d.step??0.5};
  if(!Number.isFinite(data.step)||data.step<=0)return reply({error:"Invalid step"},400);
  await previewTrail(await this.broker(),data);
- if(Date.now()>=state.expires)return reply({error:"Test expired"},409);
- if(item)item.data=data;else state.positions.push({data,active:true,checks:0,updates:0});
+ if((state.expires!=null&&Date.now()>=state.expires))return reply({error:"Test expired"},409);
+ if(item)item.data=data;else {state.positions=state.positions.filter(x=>x.active);state.positions.push({data,active:true,checks:0,updates:0});}
  }
  state.active=state.positions.some(x=>x.active);
  await this.ctx.storage.put("state",state);
@@ -42,24 +42,25 @@ export class TrailMonitor {
  if(!this.enabled()||d.confirm!==true)return reply({error:"Not enabled"},403);
  if(!Array.isArray(items)||items.length<1||items.length>3||new Set(items.map(x=>x.dealId)).size!==items.length||items.some(x=>!allowedTrailDeal(this.env,x.dealId)||!Number.isFinite(x.step??0.5)||(x.step??0.5)<=0))return reply({error:"Invalid or unauthorized positions"},400);
  const old=await this.ctx.storage.get("state");
- if(old?.active&&Date.now()<old.expires)return reply({error:"Already active"},409);
+ if(old?.active&&(old.expires==null||Date.now()<old.expires))return reply({error:"Already active"},409);
  stage="login";const client=await this.broker();stage="positions";const snapshot=await client.positions(),positions=[];
  for(const x of items){stage="position-validation";symbol=typeof x.symbol==="string"&&/^[A-Z0-9_]{1,20}$/.test(x.symbol)?x.symbol:null;const data={symbol:x.symbol,dealId:x.dealId,direction:x.direction,distance:x.distance,step:x.step??0.5};await previewTrail(client,data,snapshot);positions.push({data,active:true,checks:0,updates:0});}
- stage="storage";const state={active:true,positions,expires:Date.now()+300000,checks:0};
+ stage="storage";const state={active:true,positions,expires:null,startedAt:Date.now(),checks:0};
  await this.ctx.storage.put("state",state);await this.ctx.storage.setAlarm(Date.now()+5000);return reply(state);
  }catch(e){const message=String(e?.message??"");const detail=/^(Login HTTP \d{3}|Broker read HTTP \d{3}|Invalid position identity|Position not uniquely matched|Market metadata not verified|Invalid trailing inputs|Invalid stop distance|EPIC mismatch|Missing tokens|Missing configuration)$/.test(message)?message:"Unexpected validation or storage error";return reply({error:"Start validation failed",stage,symbol,detail},409);}
  });}
  alarm(){return this.serial(async()=>{
  const state=await this.ctx.storage.get("state");if(!state?.active)return;
  try{
- if(!Array.isArray(state.positions)||Date.now()>=state.expires||!this.enabled()){state.active=false;state.reason="expired, legacy state or disabled";}
+ if(!Array.isArray(state.positions)||(state.expires!=null&&Date.now()>=state.expires)||!this.enabled()){state.active=false;state.reason="expired, legacy state or disabled";}
  else{
  const client=await this.broker(),snapshot=await client.positions();
  if(!Array.isArray(snapshot.positions))throw Error("Invalid positions");
  state.checks++;
+ const day=new Date().toISOString().slice(0,10);const usage=await this.ctx.storage.get("usage")??{};const count=usage.day===day?(usage.cycles??0)+1:1;await this.ctx.storage.put("usage",{day,cycles:count});state.dailyCycles=count;state.usageWarning=count>=18000?"Monitor cycle budget reached":null;if(count>=20000)throw Error("Daily cycle budget reached");
  for(const item of state.positions){
  if(!item.active)continue;
- if(Date.now()>=state.expires||!allowedTrailDeal(this.env,item.data.dealId)){item.active=false;item.reason="expired or disabled";continue;}
+ if((state.expires!=null&&Date.now()>=state.expires)||!allowedTrailDeal(this.env,item.data.dealId)){item.active=false;item.reason="expired or disabled";continue;}
  if(!snapshot.positions.some(x=>x.position?.dealId===item.data.dealId)){item.active=false;item.reason="position absent";continue;}
  let writing=false;
  try{
@@ -67,14 +68,14 @@ export class TrailMonitor {
  item.checks++;item.lastStop=next.previousStop;item.lastCandidate=next.stopLevel;item.lastImprovement=Number(Math.abs(next.stopLevel-next.previousStop).toFixed(8));
  if(meetsStep(next,item.data.step)){
  const fresh=await previewTrail(client,item.data);
- if(Date.now()<state.expires&&meetsStep(fresh,item.data.step)){writing=true;item.lastStop=await client.updateStop(fresh.dealId,fresh.stopLevel);item.lastVerified=Date.now();item.updates++;}
+ if((state.expires==null||Date.now()<state.expires)&&meetsStep(fresh,item.data.step)){writing=true;item.lastStop=await client.updateStop(fresh.dealId,fresh.stopLevel);item.lastVerified=Date.now();item.updates++;}
  }
  }catch(e){if(writing||/^Broker read HTTP|^Login HTTP/.test(String(e?.message??"")))throw e;item.active=false;item.reason="Position validation failed; check broker";}
  }
- state.active=state.positions.some(x=>x.active)&&Date.now()<state.expires;
- state.lastCheck=Date.now();state.sessionLoginsSinceInstanceStart=this.logins;
+ state.active=state.positions.some(x=>x.active)&&(state.expires==null||Date.now()<state.expires);
+ state.lastCheck=Date.now();state.sessionLoginsSinceInstanceStart=this.logins;state.apiCallsSinceInstanceStart=this.apiCalls;
  }
- }catch{this.client=null;this.clientSince=0;state.active=false;state.reason="Broker or validation error; check broker before restarting";}
+ }catch{this.client=null;this.clientSince=0;state.active=false;state.reason=state.dailyCycles>=20000?"Daily cycle budget reached":"Broker or validation error; check broker before restarting";}
  await this.ctx.storage.put("state",state);if(state.active)await this.ctx.storage.setAlarm(Date.now()+5000);
  });}
 }
