@@ -6,12 +6,12 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v14"});
- if(request.method!=="POST"||!["/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
+ if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v14.1"});
+ if(request.method!=="POST"||!["/order-resolve","/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
  if(!env.BRIDGE_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.BRIDGE_ACCESS_TOKEN)return reply({error:"Unauthorized"},401);
  if(env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  if(path==="/trade"&&env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Order disabled"},403);
- if(["/trade","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path)){
+ if(["/order-resolve","/trade","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path)){
  if(!env.TRAIL_MONITOR)return reply({error:"Monitor binding missing"},503);
  return env.TRAIL_MONITOR.get(env.TRAIL_MONITOR.idFromName("demo-single")).fetch(request);
  }
