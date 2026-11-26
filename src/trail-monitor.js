@@ -43,6 +43,7 @@ export class TrailMonitor {
  }
  }catch{status="uncertain";}
  await storage.put(id,{status,finishedAt:Date.now()});
+ await storage.put("maintenance-enabled",true);
  }
  }
  async scheduleTV(){const storage=this.ctx.storage;if((await storage.list({prefix:"tv-pending:",limit:1})).size){const alarm=await storage.getAlarm();if(alarm==null||alarm>Date.now()+100)await storage.setAlarm(Date.now()+100);}}
@@ -114,6 +115,7 @@ export class TrailMonitor {
  alarm(){return this.serial(async()=>{
  try{
  await this.processTV();
+ await maintainJournal(this.ctx.storage);
  const maintenance=await this.ctx.storage.get("maintenance-enabled");
  if(maintenance&&this.env.TRADING_MODE==="DEMO"){try{await this.maintenance();}catch{this.client=null;this.clientSince=0;}}
  const state=await this.ctx.storage.get("state");if(!state?.active){if(maintenance)await this.ctx.storage.setAlarm(Date.now()+86400000);return;}
