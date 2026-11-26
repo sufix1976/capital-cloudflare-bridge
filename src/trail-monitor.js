@@ -1,3 +1,4 @@
+import {resolveUncertainOrder} from "./order-resolution.js";
 import {executeDemoOrder} from "./order-coordinator.js";
 import {connectDemo,allowedTrailDeal} from "./capital.js";
 import {isManagedDeal} from "./order-adoption.js";
@@ -14,6 +15,14 @@ export class TrailMonitor {
  async maintenance(){const day=new Date().toISOString().slice(0,10);if(await this.ctx.storage.get("reconcile-day")===day)return;const client=await this.broker();const before=await client.account();const snapshot=await client.positions();const after=await client.account();if(!before.accountId||before.accountId!==after.accountId)throw Error("Account changed");await reconcileClosedOrders(this.ctx.storage,snapshot,before.accountId);await maintainJournal(this.ctx.storage);await this.ctx.storage.put("reconcile-day",day);}
  fetch(request){return this.serial(async()=>{
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
+ if(path==="/order-resolve"){
+ if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
+ try{
+ const data=await request.json();
+ if(data.confirm!==true)return reply({error:"Explicit confirmation required"},403);
+ return reply(await resolveUncertainOrder(this.ctx.storage,await this.broker(),data));
+ }catch{return reply({error:"Resolution blocked; order remains uncertain"},409);}
+ }
  if(path==="/trade"){
  if(this.env.TRADING_MODE!=="DEMO"||this.env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Order disabled"},403);
  try{
