@@ -7,7 +7,7 @@ import {resolveInstrument} from "./instruments.js";
 function reply(data,status=200){return new Response(JSON.stringify(data),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});}
 export default {async fetch(request,env){
  const path=new URL(request.url).pathname;
- if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.5"});
+ if(path==="/"&&request.method==="GET")return reply({mode:"demo-gated",version:"preview-v15.6"});
  if(path==="/webhook"&&request.method==="POST"){
  if(env.TRADING_MODE!=="DEMO"||env.TV_WEBHOOK_ENABLED!=="true"||env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Webhook disabled"},403);
  let phase="body",identity={};
@@ -28,11 +28,11 @@ export default {async fetch(request,env){
  console.info("tv.inbox.response",{...identity,status:response.status});return response;
  }catch(e){const reason=String(e?.message??"");console.warn("tv.failed",{...identity,phase,reason:/^(Invalid payload|Invalid identity|Invalid sizing|Invalid trailing|Signal too long|Invalid signal ID|Invalid or stale signal timestamp)$/.test(reason)?reason:"Invalid request or internal failure"});return reply({error:"Invalid webhook or inbox unavailable"},400);}
  }
- if(request.method!=="POST"||!["/close-resolve","/order-resolve","/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
+ if(request.method!=="POST"||!["/close-status","/close-resolve","/order-resolve","/trade","/trade-preview","/market-check","/trail-preview","/positions","/trail-update","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path))return reply({error:"Not found"},404);
  if(!env.BRIDGE_ACCESS_TOKEN||request.headers.get("Authorization")!=="Bearer "+env.BRIDGE_ACCESS_TOKEN)return reply({error:"Unauthorized"},401);
  if(env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  if(path==="/trade"&&env.ORDER_WRITE_ENABLED!=="true")return reply({error:"Order disabled"},403);
- if(["/close-resolve","/order-resolve","/trade","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path)){
+ if(["/close-status","/close-resolve","/order-resolve","/trade","/trail-start","/trail-stop","/trail-status","/trail-add","/trail-remove","/trail-config"].includes(path)){
  if(!env.TRAIL_MONITOR)return reply({error:"Monitor binding missing"},503);
  return env.TRAIL_MONITOR.get(env.TRAIL_MONITOR.idFromName("demo-single")).fetch(request);
  }
