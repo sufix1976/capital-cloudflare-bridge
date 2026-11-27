@@ -53,12 +53,15 @@ export class TrailMonitor {
  }
  }
  async scheduleTV(){const storage=this.ctx.storage;if((await storage.list({prefix:"tv-pending:",limit:1})).size){const alarm=await storage.getAlarm();if(alarm==null||alarm>Date.now()+100)await storage.setAlarm(Date.now()+100);}}
- fetch(request){return this.serial(async()=>{
+ async fetch(request){
  const path=new URL(request.url).pathname,reply=(v,status=200)=>Response.json(v,{status});
+ // Durable inbox admission must not wait for broker I/O.
  if(path==="/tv-inbox"){
  if(this.env.TV_WEBHOOK_ENABLED!=="true"||this.env.ORDER_WRITE_ENABLED!=="true"||this.env.TRADING_MODE!=="DEMO")return reply({error:"Webhook disabled"},403);
  try{return await this.enqueueTV(request);}catch(e){console.warn("tv.inbox.failed",{reason:e?.message==="Inbox full"?"Inbox full":"Inbox validation or storage failure"});return reply({error:"Inbox unavailable"},503);}
  }
+ return this.serial(async()=> {
+ try{
  if(path==="/close-status"){
  if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  try{return reply(await closeStatus(this.ctx.storage,await this.broker()));}catch{return reply({error:"Close status unavailable; no locks changed"},409);}
@@ -126,6 +129,7 @@ export class TrailMonitor {
  stage="storage";const state={active:true,positions,expires:null,startedAt:Date.now(),checks:0};
  await this.ctx.storage.put("state",state);await this.ctx.storage.setAlarm(Date.now()+5000);return reply(state);
  }catch(e){const message=String(e?.message??"");const detail=/^(Login HTTP \d{3}|Broker read HTTP \d{3}|Invalid position identity|Position not uniquely matched|Market metadata not verified|Invalid trailing inputs|Invalid stop distance|EPIC mismatch|Missing tokens|Missing configuration)$/.test(message)?message:"Unexpected validation or storage error";return reply({error:"Start validation failed",stage,symbol,detail},409);}
+ }finally{await this.scheduleTV();}
  });}
  alarm(){return this.serial(async()=>{
  try{
