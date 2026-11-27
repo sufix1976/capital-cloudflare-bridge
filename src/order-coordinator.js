@@ -43,7 +43,7 @@ export async function executeDemoOrder(storage,client,env,data){
  for(const [id,record] of page){
  cursor=id;
  if(id!==key&&strategyId&&record.strategyId===strategyId&&record.accountId===accountId&&record.epic===epic&&record.status==="confirmed")throw Error("Strategy position already registered; reconcile before entry");
- if(id!==key&&["submitting","uncertain"].includes(record.status)&&(!record.accountId||record.accountId===accountId))throw Error("Unresolved order; manual reconciliation required");
+ if(id!==key&&["submitting","uncertain"].includes(record.status)&&(!record.accountId||(record.accountId===accountId&&(!record.epic||record.epic===epic))))throw Error("Unresolved order; manual reconciliation required");
  }
  if(page.size<128)break;
  }
