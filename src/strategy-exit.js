@@ -23,7 +23,7 @@ export async function exitStrategy(storage,client,env,data){
  const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
  for(const [key,r] of page){
  cursor=key;
- if(["submitting","uncertain"].includes(r.status)&&(!r.accountId||r.accountId===accountId))throw Error("Unresolved order");
+ if(["submitting","uncertain"].includes(r.status)&&(!r.accountId||(r.accountId===accountId&&(!r.epic||r.epic===epic))))throw Error("Unresolved order");
  if(r.status==="confirmed"&&r.accountId===accountId&&r.strategyId===strategyId&&r.epic===epic)matches.push([key,r]);
  }
  if(page.size<128)break;
