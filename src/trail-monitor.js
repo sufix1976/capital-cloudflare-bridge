@@ -62,6 +62,25 @@ export class TrailMonitor {
  }
  return this.serial(async()=> {
  try{
+ if(path==="/order-status"){
+ if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
+ try{
+ const storage=this.ctx.storage,client=await this.broker(),before=await client.account(),snapshot=await client.positions(),after=await client.account();
+ if(!before.accountId||before.accountId!==after.accountId||!Array.isArray(snapshot.positions))throw Error("Invalid snapshot");
+ const orders=[];let cursor;
+ for(;;){
+ const page=await storage.list({prefix:"order:",limit:128,...(cursor?{startAfter:cursor}:{})});
+ for(const [key,record] of page){
+ cursor=key;
+ if(!["uncertain","submitting"].includes(record.status))continue;
+ const identityVerified=record.accountId===before.accountId;
+ orders.push({signal_id:key.slice(6),symbol:record.epic,strategy_id:record.strategyId,direction:record.direction,status:record.status,createdAt:record.createdAt,identityVerified,hasReference:!!record.dealReference,positions:identityVerified?snapshot.positions.filter(x=>x.market?.epic===record.epic).map(x=>({dealId:x.position?.dealId,direction:x.position?.direction,size:x.position?.size,entryPrice:x.position?.level,stopLevel:x.position?.stopLevel})):[]});
+ }
+ if(page.size<128)break;
+ }
+ return reply({previewOnly:true,orderCount:orders.length,orders});
+ }catch{return reply({error:"Order status unavailable; no records changed"},409);}
+ }
  if(path==="/close-status"){
  if(this.env.TRADING_MODE!=="DEMO")return reply({error:"DEMO required"},403);
  try{return reply(await closeStatus(this.ctx.storage,await this.broker()));}catch{return reply({error:"Close status unavailable; no locks changed"},409);}
