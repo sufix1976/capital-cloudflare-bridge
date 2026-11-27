@@ -39,7 +39,11 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
    const prefs=await get("/accounts/preferences");
    if(prefs.hedgingMode!==true)throw Error("Hedging mode required");
    const response=await fetcher(BASE+"/positions",{method:"POST",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({epic:payload.epic,direction:payload.direction,size:payload.size,stopDistance:payload.stopDistance,trailingStop:false}),signal:AbortSignal.timeout(10000)});
-   if(!response.ok)throw Error("Order outcome requires reconciliation");
+   if(!response.ok){
+ let brokerCode=null;try{const body=await response.json();if(typeof body.errorCode==="string"&&/^error\.[a-zA-Z0-9_.-]{1,100}$/.test(body.errorCode))brokerCode=body.errorCode;}catch{}
+ console.warn("order.broker.response",{symbol:payload.epic,httpStatus:response.status,brokerCode});
+ throw Error("Order outcome requires reconciliation");
+ }
    const result=await response.json();
    if(typeof result.dealReference!=="string"||!result.dealReference)throw Error("Missing order reference");
    return result.dealReference;
