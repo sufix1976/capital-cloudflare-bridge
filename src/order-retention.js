@@ -7,7 +7,7 @@ export function validateSignal(id,issuedAt,now=Date.now()){
  return "order:"+id;
 }
 export function canDeleteOrder(record,now=Date.now()){
- return !!record&&["closed","rejected","cancelled-before-submit"].includes(record.status)&&Number.isSafeInteger(record.finishedAt)&&now-record.finishedAt>=RETENTION_MS;
+ return !!record&&["closed","rejected","cancelled-before-submit","manually-reconciled"].includes(record.status)&&Number.isSafeInteger(record.finishedAt)&&now-record.finishedAt>=RETENTION_MS;
 }
 export async function pruneOrders(storage,now=Date.now()){
  let startAfter,removed=0;
