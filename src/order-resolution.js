@@ -2,6 +2,15 @@ import {transitionOrder} from "./order-journal.js";
 export async function resolveUncertainOrder(storage,client,data){
  if(data.confirm!==true||typeof data.signal_id!=="string"||!/^[A-Za-z0-9_.:-]{1,160}$/.test(data.signal_id))throw Error("Invalid request");
  const key="order:"+data.signal_id,record=await storage.get(key);
+ if(data.manual_no_reference===true){
+ if(data.history_verified!==true||data.diagnostic===true||!record||!["uncertain","submitting"].includes(record.status)||!record.accountId||!record.epic||record.dealReference||record.dealId)throw Error("Manual reconciliation prerequisites missing");
+ if((await client.account()).accountId!==record.accountId)throw Error("Account mismatch");
+ const snapshot=await client.positions();
+ if(!Array.isArray(snapshot?.positions)||snapshot.positions.some(x=>typeof x?.position?.dealId!=="string"||!x.position.dealId||typeof x?.market?.epic!=="string"||!x.market.epic)||new Set(snapshot.positions.map(x=>x.position.dealId)).size!==snapshot.positions.length)throw Error("Invalid positions snapshot");
+ if((await client.account()).accountId!==record.accountId)throw Error("Account changed");
+ if(snapshot.positions.some(x=>x.market.epic===record.epic)||await storage.get("close:"+key))throw Error("Position or close lock present");
+ return {resolved:true,manual:true,record:await transitionOrder(storage,key,"manually-reconciled")};
+ }
  if(!record||!["uncertain","submitting"].includes(record.status)||!record.accountId||!record.dealReference)throw Error("No recoverable reference");
  if((await client.account()).accountId!==record.accountId)throw Error("Account mismatch");
  const confirmation=await client.confirmOrder(record.dealReference).catch(e=>{throw Error('Confirmation lookup: '+e.message);});
