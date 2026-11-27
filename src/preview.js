@@ -31,6 +31,7 @@ export async function previewOrder(client,data,brokerTimezone) {
  if(trailing&&r.trailingStopsPreference!=="AVAILABLE")throw new Error("Trailing support not verified");
  function bounds(rule,reference){if(!Number.isFinite(rule?.value)||rule.value<0)throw new Error("Unknown stop rule");if(rule.unit==="POINTS")return rule.value;if(rule.unit==="PERCENTAGE")return reference*rule.value/100;throw new Error("Unknown stop unit");}
  if(distance<bounds(r.minStopOrProfitDistance,price)||distance>bounds(r.maxStopOrProfitDistance,s.bid))throw new Error("Stop outside broker limits");
+ console.info("order.market.rules",{symbol:epic,bid:s.bid,offer:s.offer,minSize:r.minDealSize.value,sizeStep:r.minSizeIncrement.value,maxSize:r.maxDealSize.value,minStopDistance:bounds(r.minStopOrProfitDistance,price),requestedStopDistance:distance,size:sizing.size});
  Object.assign(payload,{trailingStop:trailing,stopDistance:distance});
  }
  if(managed&&(!Number.isFinite(data.trailing_distance)||data.trailing_distance<=0||!Number.isFinite(data.trailing_step)||data.trailing_step<=0))throw new Error("Invalid managed trailing parameters");
