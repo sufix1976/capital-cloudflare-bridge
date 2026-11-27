@@ -11,7 +11,7 @@ export async function reserveOrder(storage,signalId,issuedAt,epic,now=Date.now()
  });
 }
 export async function transitionOrder(storage,key,status,fields={},now=Date.now()){
- const allowed={reserved:["cancelled-before-submit","submitting"],submitting:["uncertain","rejected","confirmed"],uncertain:["confirmed","rejected"],confirmed:["closed"]};
+ const allowed={reserved:["cancelled-before-submit","submitting"],submitting:["uncertain","rejected","confirmed","manually-reconciled"],uncertain:["confirmed","rejected","manually-reconciled"],confirmed:["closed"]};
  return storage.transaction(async tx=>{
  const old=await tx.get(key);
  if(!old||!allowed[old.status]?.includes(status))throw Error("Invalid order transition");
@@ -22,7 +22,8 @@ export async function transitionOrder(storage,key,status,fields={},now=Date.now(
  if(fields.dealReference!==undefined)next.dealReference=fields.dealReference;
  if(fields.dealId!==undefined)next.dealId=fields.dealId;
  if(status==="confirmed"&&(typeof next.dealId!=="string"||!next.dealId))throw Error("Missing confirmed deal ID");
- if(["closed","rejected","cancelled-before-submit"].includes(status))next.finishedAt=now;
+ if(status==="manually-reconciled")next.manualHistoryVerified=true;
+ if(["closed","rejected","cancelled-before-submit","manually-reconciled"].includes(status))next.finishedAt=now;
  await tx.put(key,next);
  return next;
  });
