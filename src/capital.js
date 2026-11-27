@@ -40,8 +40,20 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
    if(prefs.hedgingMode!==true)throw Error("Hedging mode required");
    const response=await fetcher(BASE+"/positions",{method:"POST",headers:{...headers,"Content-Type":"application/json"},body:JSON.stringify({epic:payload.epic,direction:payload.direction,size:payload.size,stopDistance:payload.stopDistance,trailingStop:false}),signal:AbortSignal.timeout(10000)});
    if(!response.ok){
- let brokerCode=null;try{const body=await response.json();if(typeof body.errorCode==="string"&&/^error\.[a-zA-Z0-9_.-]{1,100}$/.test(body.errorCode))brokerCode=body.errorCode;}catch{}
- console.warn("order.broker.response",{symbol:payload.epic,httpStatus:response.status,brokerCode});
+ let brokerCode="unavailable",responseFormat="unknown",errorFields=[];
+ try{
+ const raw=await response.text();
+ try{
+ const body=JSON.parse(raw);responseFormat="json";
+ if(body&&typeof body==="object"){
+ errorFields=["errorCode","code","error","message","reason","details"].filter(k=>Object.hasOwn(body,k));
+ for(const candidate of [body.errorCode,body.code,body.error?.code,body.error]){
+ if(typeof candidate==="string"&&/^[a-zA-Z][a-zA-Z0-9_.-]{0,119}$/.test(candidate)&&!/^[a-f0-9]{16,}$/i.test(candidate)){brokerCode=candidate;break;}
+ }
+ }
+ }catch{responseFormat="non-json";if(/^[a-zA-Z][a-zA-Z0-9_.-]{0,119}$/.test(raw.trim())&&!/^[a-f0-9]{16,}$/i.test(raw.trim()))brokerCode=raw.trim();}
+ }catch{responseFormat="unreadable";}
+ console.warn("order.broker.response",{symbol:payload.epic,httpStatus:response.status,brokerCode,responseFormat,errorFields,direction:payload.direction,size:payload.size,stopDistance:payload.stopDistance,trailingStop:false});
  throw Error("Order outcome requires reconciliation");
  }
    const result=await response.json();
