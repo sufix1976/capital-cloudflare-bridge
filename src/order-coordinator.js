@@ -1,3 +1,4 @@
+import {reconcileCloseLocks} from "./close-resolution.js";
 import {previewOrder} from "./preview.js";
 import {reserveOrder,transitionOrder,maintainJournal} from "./order-journal.js";
 import {adoptConfirmedOrder} from "./order-adoption.js";
@@ -20,15 +21,7 @@ export async function executeDemoOrder(storage,client,env,data){
  const account=await client.account();
  accountId=account.accountId;
  if(typeof accountId!=="string"||!accountId)throw Error("Account identity required");
- let closeCursor;
- for(;;){
- const locks=await storage.list({prefix:"close:",limit:128,...(closeCursor?{startAfter:closeCursor}:{})});
- for(const [id,lock] of locks){
- closeCursor=id;
- if(!lock.accountId||lock.accountId===accountId)throw Error("Unresolved close; manual reconciliation required");
- }
- if(locks.size<128)break;
- }
+ await reconcileCloseLocks(storage,client,accountId,epic);
  if(strategyId){
  const snapshot=await client.positions();
  if((await client.account()).accountId!==accountId)throw Error("Account changed");
