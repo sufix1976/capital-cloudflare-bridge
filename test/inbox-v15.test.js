@@ -49,3 +49,29 @@ test("queued signal cannot execute after webhook disabled",async()=>{
  stopped.broker=async()=>assert.fail("broker must not be called");
  await stopped.processTV();assert.equal((await s.get("tv:"+d.signal_id)).status,"blocked");
 });
+
+test("webhooks acknowledge while serialized broker work is blocked",async()=>{
+ const s=storage(),m=new TrailMonitor({storage:s},env),d=data();
+ let release,started;
+ const gate=new Promise(r=>release=r),ready=new Promise(r=>started=r);
+ const busy=m.serial(async()=>{started();await gate;});
+ await ready;
+ let timer;
+ try{
+ const responses=await Promise.race([
+ Promise.all([m.fetch(request(d)),m.fetch(request({...d,symbol:"J225",signal_id:"inbox-2"}))]),
+ new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error("Inbox waited for broker")),500);})
+ ]);
+ assert.deepEqual(responses.map(r=>r.status),[202,202]);
+ assert.equal((await s.list({prefix:"tv-pending:"})).size,2);
+ assert.ok(await s.getAlarm());
+ assert.equal((await (await m.fetch(request(d))).json()).duplicate,true);
+ }finally{clearTimeout(timer);release();await busy;}
+});
+test("serial request re-arms pending inbox after alarm is postponed",async()=>{
+ const s=storage(),m=new TrailMonitor({storage:s},env);
+ await m.fetch(request(data()));
+ await s.setAlarm(Date.now()+86400000);
+ await m.fetch(new Request("https://internal/trail-status"));
+ assert.ok(await s.getAlarm()<=Date.now()+1000);
+});
