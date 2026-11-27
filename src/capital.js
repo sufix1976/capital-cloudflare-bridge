@@ -47,6 +47,7 @@ export async function connectDemo(env, fetcher=fetch, authorizeManagedDeal=async
  const body=JSON.parse(raw);responseFormat="json";
  if(body&&typeof body==="object"){
  errorFields=["errorCode","code","error","message","reason","details"].filter(k=>Object.hasOwn(body,k));
+ if(typeof body.errorCode==="string" && body.errorCode.length<=200 && /^[a-zA-Z0-9_. :;,()\[\]!-]+$/.test(body.errorCode) && !/[a-zA-Z0-9_-]{24,}/.test(body.errorCode)) brokerCode=body.errorCode;
  for(const candidate of [body.errorCode,body.code,body.error?.code,body.error]){
  if(typeof candidate==="string"&&/^[a-zA-Z][a-zA-Z0-9_.-]{0,119}$/.test(candidate)&&!/^[a-f0-9]{16,}$/i.test(candidate)){brokerCode=candidate;break;}
  }
